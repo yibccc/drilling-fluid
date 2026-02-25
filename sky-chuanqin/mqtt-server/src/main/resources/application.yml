@@ -1,0 +1,50 @@
+server:
+  port: 18081
+
+spring:
+  profiles:
+    active: dev
+  main:
+    allow-circular-references: true
+  datasource:
+    druid:
+      driver-class-name: ${sky.datasource.driver-class-name}
+      url: jdbc:mysql://${sky.datasource.host}:${sky.datasource.port}/${sky.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+      username: ${sky.datasource.username}
+      password: ${sky.datasource.password}
+  redis:
+    host: ${sky.redis.host}
+    port: ${sky.redis.port}
+    password: ${sky.redis.password}
+    database: ${sky.redis.database}
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml # 指定 XML 映射文件位置
+  type-aliases-package: com.sky.entity # 指定实体类的位置
+  configuration:
+    map-underscore-to-camel-case: true # 开启驼峰命名转换
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+logging:
+  level:
+    com:
+      kira:
+        mqtt:
+          mapper: debug
+          service: info
+          controller: info
+
+# MQTT配置
+mqtt:
+  host: tcp://47.113.226.70:1883
+  username: admin  # 用户名
+  password: Ff2345678. # 密码
+  clientId: sky_server_${random.int} # 客户端ID,添加随机数防止重复
+  timeout: 10 # 超时时间
+  keepalive: 20 # 保持连接时间
+  topic: sky/test1/# # 订阅的主题
+
+

@@ -1,0 +1,15 @@
+sky:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: 172.23.255.155
+    port: 3306
+    database: drilling_data
+    username: drilling_data
+    password: 6X83JzhKN5HwtSy4
+  redis:
+    host: 172.23.255.155
+    port: 18085
+    password: F2345678.
+    database: 10
+
+

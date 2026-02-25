@@ -1,0 +1,61 @@
+server:
+  port: 18080
+
+spring:
+  profiles:
+    active: dev,xxljob
+  main:
+    allow-circular-references: true
+  datasource:
+    druid:
+      driver-class-name: ${sky.datasource.driver-class-name}
+      url: ${sky.datasource.url}
+      username: ${sky.datasource.username}
+      password: ${sky.datasource.password}
+  redis:
+    host: ${sky.redis.host}
+    port: ${sky.redis.port}
+    password: ${sky.redis.password}
+    database: ${sky.redis.database}
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml
+  type-aliases-package: com.kira.server.domain.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+
+logging:
+  level:
+    com:
+      kira:
+        server:
+          mapper: debug
+          service: info
+          controller: info
+
+# JWT配置
+jwt:
+  secret: KiraAndAromaWillLoveEachotherForeverLaLaLa
+  # 240小时 = 24 * 60 * 60 * 10000
+  expiration: 864000000
+  header: Authorization
+  prefix: "Bearer "
+  # 签名主题
+  subject: YIBCCC
+  # 角色权限声明
+  role-claims: role
+
+# 线程池配置
+thread-pool:
+  core-pool-size: 0
+  max-pool-size: 0
+  queue-capacity: 100
+  keep-alive-seconds: 60
+  thread-name-prefix: "drilling-data-"
+  wait-for-tasks-to-complete-on-shutdown: true
+  await-termination-seconds: 60

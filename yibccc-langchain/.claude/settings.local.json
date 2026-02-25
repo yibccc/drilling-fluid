@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "mcp__sequential-thinking__sequentialthinking",
+      "mcp__web-search-prime__webSearchPrime",
+      "mcp__memory__create_entities",
+      "Bash(tree:*)",
+      "mcp__mcp-feedback-enhanced__interactive_feedback",
+      "Bash(uv run python:*)",
+      "Bash(uv pip install:*)",
+      "mcp__shrimp-task-manager__plan_task",
+      "mcp__shrimp-task-manager__analyze_task",
+      "mcp__shrimp-task-manager__reflect_task",
+      "mcp__shrimp-task-manager__split_tasks",
+      "mcp__shrimp-task-manager__list_tasks",
+      "mcp__mcp-router__resolve-library-id",
+      "mcp__mcp-router__query-docs",
+      "Bash(uv sync)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pytest:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv pip list:*)",
+      "mcp__mcp-router__interactive_feedback",
+      "Bash(git checkout:*)",
+      "Bash(python:*)",
+      "Bash(.venv/bin/python -m pytest:*)",
+      "Bash(uv add:*)",
+      "mcp__mcp-router__sequentialthinking",
+      "mcp__auggie-mcp__codebase-retrieval",
+      "WebSearch",
+      "Bash(echo Python cache cleared:*)"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+sky:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: 47.113.226.70
+    port: 3306
+    database: sky
+    username: root
+    password: 9988741
+  redis:
+    host: 47.113.226.70
+    port: 6379
+    password: F2345678.
+    database: 10
+
+

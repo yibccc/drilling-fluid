@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find E:\\\\drilling-fluid\\\\sky-chuanqin:*)",
+      "mcp__mcp-feedback-enhanced__interactive_feedback"
+    ]
+  }
+}
