@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import reactor.core.publisher.Flux;
@@ -34,14 +35,14 @@ public class SSEForwardService {
     public Flux<String> forwardSSE(String uri, Object request, Duration timeout) {
         log.info("转发 SSE 请求到: {}", uri);
 
-        WebClient.RequestHeadersSpec<?> requestSpec = agentWebClient.post()
+        WebClient.RequestBodySpec requestBodySpec = agentWebClient.post()
                 .uri(uri);
 
         if (request != null) {
-            requestSpec.bodyValue(request);
+            requestBodySpec.body(BodyInserters.fromValue(request));
         }
 
-        return requestSpec
+        return requestBodySpec
                 .retrieve()
                 .bodyToFlux(DataBuffer.class)
                 .map(this::dataBufferToString)
