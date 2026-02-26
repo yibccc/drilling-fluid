@@ -56,6 +56,12 @@
             <scope>compile</scope>
         </dependency>
 
+        <!-- WebFlux for SSE streaming support -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>mysql</groupId>
             <artifactId>mysql-connector-java</artifactId>
