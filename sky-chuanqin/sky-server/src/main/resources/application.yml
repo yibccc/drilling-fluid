@@ -59,3 +59,11 @@ thread-pool:
   thread-name-prefix: "drilling-data-"
   wait-for-tasks-to-complete-on-shutdown: true
   await-termination-seconds: 60
+
+# FastAPI Agent 服务配置
+agent:
+  base-url: ${AGENT_BASE_URL:http://localhost:8000}
+  api-key: ${AGENT_API_KEY:test-key}
+  timeout:
+    connect: 5000
+    read: 300000    # 5分钟，诊断分析可能较长
