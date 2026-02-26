@@ -1,5 +1,6 @@
 package com.kira.server.service.ai;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -22,7 +23,7 @@ class AgentCallbackServiceTest {
     }
 
     @Test
-    void testHandleDiagnosisCallback() {
+    void testHandleDiagnosisCallback() throws JsonProcessingException {
         String json = "{\"task_id\":\"task-001\",\"status\":\"completed\",\"result\":\"test result\"}";
         JsonNode payload = objectMapper.readTree(json);
 

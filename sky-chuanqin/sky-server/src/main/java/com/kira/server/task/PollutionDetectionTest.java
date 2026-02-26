@@ -1,10 +1,12 @@
 package com.kira.server.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.kira.server.controller.ai.dto.DiagnosisRequest;
 import com.kira.server.domain.vo.ParameterVO;
 import com.kira.server.enums.RedisKeys;
 import com.kira.server.service.IFullPerformanceService;
 import com.kira.server.service.IPollutionAlarmLogService;
+import com.kira.server.service.ai.AiDiagnosisTriggerService;
 import com.kira.common.websocket.WebSocketServer;
 import com.xxl.job.core.handler.annotation.XxlJob;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +31,9 @@ import java.util.Map;
 @Slf4j
 public class PollutionDetectionTest {
 
+    private static final String ALERT_ID_PREFIX = "ALERT-";
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     @Autowired
     private IFullPerformanceService fullPerformanceService;
 
@@ -44,7 +49,8 @@ public class PollutionDetectionTest {
     @Autowired
     private WebSocketServer webSocketServer;
 
-    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    @Autowired
+    private AiDiagnosisTriggerService aiDiagnosisTriggerService;
 
     /**
      * 钙污染检测定时任务
@@ -77,7 +83,8 @@ public class PollutionDetectionTest {
             if (isPolluted) {
                 log.error("【定时检测】检测到钙污染，井ID：{}", wellId);
 
-//                sendPollutionAlert("钙污染", wellId, wellLocation);
+                // 触发 AI 诊断
+                triggerAiDiagnosis(wellId, "钙污染", result, wellLocation);
             } else {
                 log.info("【定时检测】钙污染检测正常，井ID：{}", wellId);
             }
@@ -116,7 +123,8 @@ public class PollutionDetectionTest {
             if (isPolluted) {
                 log.error("【定时检测】检测到二氧化碳污染，井ID：{}", wellId);
 
-//                sendPollutionAlert("二氧化碳污染", wellId, wellLocation);
+                // 触发 AI 诊断
+                triggerAiDiagnosis(wellId, "二氧化碳污染", result, wellLocation);
             } else {
                 log.info("【定时检测】二氧化碳污染检测正常，井ID：{}", wellId);
             }
@@ -156,7 +164,8 @@ public class PollutionDetectionTest {
             if (isUnstable) {
                 log.error("【定时检测】检测到钻井液长效稳定问题，井ID：{}", wellId);
 
-//                sendPollutionAlert("钻井液稳定性问题", wellId, wellLocation);
+                // 触发 AI 诊断
+                triggerAiDiagnosis(wellId, "钻井液稳定性问题", result, wellLocation);
             } else {
                 log.info("【定时检测】钻井液长效稳定检测正常，井ID：{}", wellId);
             }
@@ -192,6 +201,82 @@ public class PollutionDetectionTest {
 
         } catch (Exception e) {
             log.error("发送污染预警WebSocket消息失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 触发 AI 诊断分析
+     *
+     * @param wellId         井ID
+     * @param alertType      预警类型
+     * @param detectionResult 检测结果
+     * @param wellLocation   井位置
+     */
+    private void triggerAiDiagnosis(String wellId, String alertType,
+                                     Map<String, List<ParameterVO>> detectionResult,
+                                     String wellLocation) {
+        String alertId = ALERT_ID_PREFIX + System.currentTimeMillis();
+
+        try {
+            // 1. 构造诊断请求
+            DiagnosisRequest request = buildDiagnosisRequest(wellId, alertType, detectionResult);
+
+            // 2. 触发 AI 诊断
+            boolean success = aiDiagnosisTriggerService.triggerDiagnosis(
+                    alertId, wellId, alertType, request
+            );
+
+            // 3. 发送 WebSocket 预警
+            sendAiDiagnosisAlert(alertId, wellId, wellLocation, alertType,
+                    success ? "COMPLETED" : "FAILED");
+
+        } catch (Exception e) {
+            log.error("触发 AI 诊断异常: alertId={}, error={}", alertId, e.getMessage(), e);
+            // 即使失败也发送预警
+            sendAiDiagnosisAlert(alertId, wellId, wellLocation, alertType, "ERROR");
+        }
+    }
+
+    /**
+     * 构造诊断请求
+     */
+    private DiagnosisRequest buildDiagnosisRequest(String wellId, String alertType,
+                                                    Map<String, List<ParameterVO>> detectionResult) {
+        DiagnosisRequest request = new DiagnosisRequest();
+        request.setWellId(wellId);
+        request.setAlertType(alertType);
+        request.setAlertTriggeredAt(LocalDateTime.now());
+        request.setStream(true);
+
+        // 如果有污染详情数据，可以转换为 samples
+        // 这里简化处理，实际可以添加更多上下文信息
+        return request;
+    }
+
+    /**
+     * 发送 AI 诊断预警消息
+     */
+    private void sendAiDiagnosisAlert(String alertId, String wellId, String wellLocation,
+                                      String alertType, String status) {
+        try {
+            Map<String, Object> alertMessage = new HashMap<>();
+            alertMessage.put("type", "AI_DIAGNOSIS_ALERT");
+            alertMessage.put("alertId", alertId);
+            alertMessage.put("wellId", wellId);
+            alertMessage.put("wellLocation", wellLocation);
+            alertMessage.put("alertType", alertType);
+            alertMessage.put("severity", "HIGH");
+            alertMessage.put("triggeredAt", System.currentTimeMillis());
+            alertMessage.put("status", status);
+            alertMessage.put("diagnosisUrl", "/api/ai/diagnosis/stream?alertId=" + alertId);
+
+            String jsonMessage = objectMapper.writeValueAsString(alertMessage);
+            log.info("发送 AI 诊断预警: {}", jsonMessage);
+
+            webSocketServer.sendToAllClient(jsonMessage);
+
+        } catch (Exception e) {
+            log.error("发送 AI 诊断预警失败: {}", e.getMessage());
         }
     }
 }

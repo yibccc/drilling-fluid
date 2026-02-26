@@ -1,0 +1,9 @@
+spring:
+  profiles:
+    active: test
+  main:
+    allow-circular-references: true
+
+# Disable WebSocket in tests
+websocket:
+  enabled: false

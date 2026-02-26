@@ -56,4 +56,26 @@ class AgentIntegrationTest {
                 .expectStatus().isOk()
                 .expectHeader().contentType("text/event-stream;charset=UTF-8");
     }
+
+    @Test
+    void testDiagnosisCacheFlow() {
+        // 1. 创建诊断请求
+        String requestJson = "{\n" +
+                "    \"well_id\": \"well-001\",\n" +
+                "    \"alert_type\": \"HIGH_DENSITY\",\n" +
+                "    \"alert_triggered_at\": \"2026-02-26T10:00:00\",\n" +
+                "    \"stream\": true\n" +
+                "}";
+
+        // 2. 发起诊断分析
+        webTestClient.post()
+                .uri("/api/ai/diagnosis/analyze")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestJson)
+                .exchange()
+                .expectStatus().isOk();
+
+        // 注意：此测试需要 Agent 服务运行，且需要知道 taskId
+        // 完整流程测试需要在实际环境中验证
+    }
 }

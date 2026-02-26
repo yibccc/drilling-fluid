@@ -67,3 +67,10 @@ agent:
   timeout:
     connect: 5000
     read: 300000    # 5分钟，诊断分析可能较长
+
+# AI 诊断配置
+diagnosis:
+  alert-cache-ttl: 15
+  result-cache-ttl: 15
+  timeout-minutes: 5
+  enabled: true

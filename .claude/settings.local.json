@@ -2,7 +2,27 @@
   "permissions": {
     "allow": [
       "Bash(find E:\\\\drilling-fluid\\\\sky-chuanqin:*)",
-      "mcp__mcp-feedback-enhanced__interactive_feedback"
+      "mcp__mcp-feedback-enhanced__interactive_feedback",
+      "Bash(git add docs/plans/2026-02-26-ai-diagnosis-trigger-design.md)",
+      "Bash(git commit -m \"docs: 添加 XXL-Job 触发 AI 诊断功能设计文档\")",
+      "Bash(git add sky-chuanqin/docs/plans/2026-02-26-ai-diagnosis-trigger-design.md)",
+      "Bash(mvn test -Dtest=DiagnosisPropertiesTest -q)",
+      "Bash(mvn clean compile -DskipTests -q)",
+      "Bash(mvn clean test -Dtest=DiagnosisPropertiesTest -q)",
+      "Bash(mvn compiler:testCompile -Dmaven.test.skip=false -DskipTests=false -Dtest=DiagnosisPropertiesTest)",
+      "Bash(mvn surefire:test -Dtest=DiagnosisPropertiesTest)",
+      "Bash(mvn clean compile -DskipTests)",
+      "Bash(mvn clean compile test-compile)",
+      "Bash(java -version)",
+      "Bash(mvn -version)",
+      "Bash(/usr/libexec/java_home -V)",
+      "Bash(export JAVA_HOME=/opt/homebrew/Cellar/openjdk@17/17.0.17/libexec/openjdk.jdk/Contents/Home)",
+      "Bash(mvn clean compile)",
+      "Bash(mvn test -Dtest=DiagnosisPropertiesTest)",
+      "Bash(mvn clean test -Dtest=DiagnosisPropertiesTest)",
+      "Bash(mvn test -Dtest=Diagnosis*Test)",
+      "Bash(~/.zshrc)",
+      "Bash(source ~/.mavenrc)"
     ]
   }
 }
