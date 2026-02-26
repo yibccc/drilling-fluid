@@ -41,14 +41,12 @@ class AgentIntegrationTest {
 
     @Test
     void testDiagnosisAnalyzeIntegration() {
-        String requestJson = """
-            {
-                "well_id": "well-001",
-                "alert_type": "HIGH_DENSITY",
-                "alert_triggered_at": "2026-02-26T10:00:00",
-                "stream": true
-            }
-            """;
+        String requestJson = "{\n" +
+            "    \"well_id\": \"well-001\",\n" +
+            "    \"alert_type\": \"HIGH_DENSITY\",\n" +
+            "    \"alert_triggered_at\": \"2026-02-26T10:00:00\",\n" +
+            "    \"stream\": true\n" +
+            "}";
 
         webTestClient.post()
                 .uri("/api/ai/diagnosis/analyze")
