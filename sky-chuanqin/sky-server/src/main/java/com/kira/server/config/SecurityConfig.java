@@ -129,6 +129,11 @@ public class SecurityConfig {
                                 "/error"
                         ).permitAll()
 
+                        // AI 端点 (调试期间放行，生产环境需要认证)
+                        .antMatchers(
+                                "/api/ai/**"
+                        ).permitAll()
+
                         // 所有其他请求需要认证
                         .anyRequest().authenticated()
                 )
