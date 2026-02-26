@@ -56,6 +56,7 @@ public class DiagnosisRequest {
     /**
      * 是否流式返回
      */
+    @JsonProperty("stream")
     private Boolean stream = true;
 
     /**
@@ -66,7 +67,7 @@ public class DiagnosisRequest {
         private String field;
         private String condition;
         private Double threshold;
-        @JsonProperty("currentValue")
+        @JsonProperty("current_value")
         private Double currentValue;
     }
 
