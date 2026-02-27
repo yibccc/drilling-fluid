@@ -46,15 +46,15 @@ public class KnowledgeImportService {
     @Async("taskExecutor")
     public String processFileAsync(MultipartFile file, String category, String subcategory) {
         String docId = generateDocId();
+        log.info("开始处理文件: docId={}, filename={}", docId, file.getOriginalFilename());
 
         try {
-            log.info("开始处理文件: docId={}, filename={}", docId, file.getOriginalFilename());
-
             // 1. 更新状态：PARSING
             updateStatus(docId, ImportStatus.PARSING);
 
             // 2. Tika 解析
             DocumentContent content = tikaParser.parse(file);
+            log.info("Tika 解析完成: docId={}, contentLength={}", docId, content.getContentLength());
 
             // 3. 构建元数据
             DocumentMetadata metadata = DocumentMetadata.builder()
@@ -76,9 +76,10 @@ public class KnowledgeImportService {
             return docId;
 
         } catch (Exception e) {
-            log.error("文件处理失败: docId={}", docId, e);
+            log.error("文件处理失败: docId={}, error={}", docId, e.getMessage(), e);
             updateStatus(docId, ImportStatus.FAILED);
-            throw new RuntimeException("文件处理失败: " + e.getMessage(), e);
+            // 即使失败也返回 docId，让调用方可以追踪
+            return docId;
         }
     }
 
