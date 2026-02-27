@@ -32,6 +32,7 @@
         <jaxb-api>2.3.1</jaxb-api>
         <poi>3.16</poi>
         <xxl>2.3.0</xxl>
+        <tika>2.9.1</tika>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -133,6 +134,18 @@
                 <groupId>org.apache.poi</groupId>
                 <artifactId>poi-ooxml</artifactId>
                 <version>${poi}</version>
+            </dependency>
+
+            <!-- Apache Tika for document parsing -->
+            <dependency>
+                <groupId>org.apache.tika</groupId>
+                <artifactId>tika-core</artifactId>
+                <version>${tika}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tika</groupId>
+                <artifactId>tika-parsers-standard-package</artifactId>
+                <version>${tika}</version>
             </dependency>
 
         </dependencies>
