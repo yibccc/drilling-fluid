@@ -188,14 +188,4 @@ public class KnowledgeImportService {
             throw new RuntimeException("发送消息失败: " + e.getMessage(), e);
         }
     }
-
-    /**
-     * 生成文档 ID
-     *
-     * @return 文档 ID
-     */
-    private String generateDocId() {
-        return "DOC-" + System.currentTimeMillis() + "-" +
-                UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-    }
 }
