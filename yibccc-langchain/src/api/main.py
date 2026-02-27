@@ -15,13 +15,20 @@ from src.services.chat_service import chat_service
 from src.services.diagnosis_service import DiagnosisService
 import src.services.diagnosis_service as diagnosis_service_module
 from src.services.sync_service import sync_service
+from src.services.knowledge_import_consumer import KnowledgeImportConsumer
 from src.repositories.pg_repo import pg_repo
 from src.config import settings
+
+
+# 全局变量：知识导入消费者
+_knowledge_import_consumer = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    global _knowledge_import_consumer
+
     # 启动
     await pg_repo.connect()
 
@@ -59,8 +66,15 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(sync_service.start())
         logging.info("SyncService started")
 
+    # 启动知识导入消费者
+    _knowledge_import_consumer = KnowledgeImportConsumer(pg_repo.pool)
+    asyncio.create_task(_knowledge_import_consumer.start())
+    logging.info("KnowledgeImportConsumer started")
+
     yield
     # 关闭
+    if _knowledge_import_consumer:
+        await _knowledge_import_consumer.stop()
     await sync_service.stop()
     await diagnosis_service_module.diagnosis_service.cleanup()
     await chat_service.cleanup()
