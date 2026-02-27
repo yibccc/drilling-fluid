@@ -105,11 +105,20 @@ class KnowledgeRepository:
         doc_id: str,
         chunks: List[Dict[str, Any]]
     ) -> int:
-        """创建文档分块（含向量）"""
+        """创建文档分块（含向量）- 使用 pgvector 原生格式"""
         if not self.embedding_client:
             raise KnowledgeBaseError("Embedding 客户端未配置")
 
         async with self.pool.acquire() as conn:
+            # 注册 pgvector 类型编解码器
+            await conn.set_type_codec(
+                'vector',
+                encoder=lambda v: str(v),  # list[float] -> vector string
+                decoder=lambda v: [float(x) for x in v.strip('[]').split(',')],
+                schema='pg_catalog',
+                format='text'
+            )
+
             async with conn.transaction():
                 # 删除旧分块
                 await conn.execute(
@@ -117,12 +126,14 @@ class KnowledgeRepository:
                     doc_id
                 )
 
-                # 插入新分块
-                for idx, chunk in enumerate(chunks):
-                    content = chunk["content"]
-                    # 生成 embedding
-                    embedding = await self._embed_text(content)
+                # 批量生成 embedding（优化性能）
+                texts = [chunk["content"] for chunk in chunks]
+                embeddings = await self._embed_batch(texts)
 
+                # 批量插入
+                for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                    content = chunk["content"]
+                    # 直接传递向量列表，让编解码器处理
                     await conn.execute(
                         """
                         INSERT INTO knowledge_chunks
@@ -132,7 +143,7 @@ class KnowledgeRepository:
                         doc_id,
                         idx,
                         content,
-                        str(embedding.tolist())  # 转换为字符串存储
+                        embedding  # list[float]
                     )
 
                 # 更新文档的分块计数
@@ -144,13 +155,24 @@ class KnowledgeRepository:
 
         return len(chunks)
 
+    async def _embed_batch(self, texts: List[str]) -> List[List[float]]:
+        """批量生成 embedding（性能优化）"""
+        import asyncio
+
+        def sync_embed_batch():
+            # 使用 LangChain 的批量 embedding
+            return self.embedding_client.embed_documents(texts)
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, sync_embed_batch)
+
     async def vector_search(
         self,
         query: str,
         top_k: int = 5,
         category: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """向量搜索"""
+        """向量搜索 - 使用原生格式"""
         if not self.embedding_client:
             raise KnowledgeBaseError("Embedding 客户端未配置")
 
@@ -158,20 +180,29 @@ class KnowledgeRepository:
         query_embedding = await self._embed_text(query)
 
         async with self.pool.acquire() as conn:
+            # 确保类型编解码器已注册
+            await conn.set_type_codec(
+                'vector',
+                encoder=lambda v: str(v),
+                decoder=lambda v: [float(x) for x in v.strip('[]').split(',')],
+                schema='pg_catalog',
+                format='text'
+            )
+
             if category:
-                # 使用子查询先筛选分类
                 rows = await conn.fetch(
                     """
                     SELECT DISTINCT ON (kd.doc_id)
                         kd.doc_id, kd.title, kd.category, kd.content,
-                        kc.embedding <-> $1 as distance
+                        MIN(kc.embedding <-> $1) as distance
                     FROM knowledge_documents kd
                     JOIN knowledge_chunks kc ON kd.doc_id = kc.parent_doc_id
                     WHERE kd.category = $2
-                    ORDER BY kd.doc_id, distance
+                    GROUP BY kd.doc_id, kd.title, kd.category, kd.content
+                    ORDER BY distance
                     LIMIT $3
                     """,
-                    str(query_embedding.tolist()),
+                    query_embedding,  # 直接传递 list
                     category,
                     top_k
                 )
@@ -187,7 +218,7 @@ class KnowledgeRepository:
                     ORDER BY distance
                     LIMIT $2
                     """,
-                    str(query_embedding.tolist()),
+                    query_embedding,
                     top_k
                 )
 
