@@ -6,12 +6,24 @@ import com.kira.server.controller.knowledge.dto.DocumentMetadata;
 import com.kira.server.enums.ImportStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tika.exception.TikaException;
+import org.apache.tika.metadata.Metadata;
+import org.apache.tika.metadata.TikaCoreProperties;
+import org.apache.tika.parser.AutoDetectParser;
+import org.apache.tika.parser.ParseContext;
+import org.apache.tika.parser.Parser;
+import org.apache.tika.parser.pdf.PDFParserConfig;
+import org.apache.tika.sax.BodyContentHandler;
+import org.apache.tika.embedder.EmbedderDocumentExtractor;
+import org.apache.tika.embedder.NoOpEmbeddedDocumentExtractor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -29,12 +41,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class KnowledgeImportService {
 
-    private final TikaDocumentParser tikaParser;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
     private static final String STREAM_NAME = "stream:knowledge_import";
     private static final String STATUS_PREFIX = "knowledge:status:";
+    private static final int MAX_TEXT_LENGTH = 10 * 1024 * 1024; // 10MB
 
     /**
      * 同步生成文档 ID（立即返回）
@@ -66,20 +78,11 @@ public class KnowledgeImportService {
             // 1. 更新状态：PARSING
             updateStatus(docId, ImportStatus.PARSING);
 
-            // 2. 将字节数组转换为 MockMultipartFile 供 Tika 使用
-            org.springframework.mock.web.MockMultipartFile mockFile =
-                    new org.springframework.mock.web.MockMultipartFile(
-                            "file",
-                            filename,
-                            contentType,
-                            fileBytes
-                    );
-
-            // 3. Tika 解析
-            DocumentContent content = tikaParser.parse(mockFile);
+            // 2. 解析文档内容
+            DocumentContent content = parseContent(new ByteArrayInputStream(fileBytes), filename);
             log.info("Tika 解析完成: docId={}, contentLength={}", docId, content.getContentLength());
 
-            // 4. 构建元数据
+            // 3. 构建元数据
             DocumentMetadata metadata = DocumentMetadata.builder()
                     .originalFilename(filename)
                     .contentType(contentType)
@@ -89,10 +92,10 @@ public class KnowledgeImportService {
                     .subcategory(subcategory)
                     .build();
 
-            // 5. 发送 Redis Stream 消息
+            // 4. 发送 Redis Stream 消息
             sendImportMessage(docId, content, metadata);
 
-            // 6. 更新状态：QUEUED
+            // 5. 更新状态：QUEUED
             updateStatus(docId, ImportStatus.QUEUED);
 
             log.info("文件处理完成，已入队: docId={}", docId);
@@ -100,6 +103,81 @@ public class KnowledgeImportService {
         } catch (Exception e) {
             log.error("文件处理失败: docId={}, error={}", docId, e.getMessage(), e);
             updateStatus(docId, ImportStatus.FAILED);
+        }
+    }
+
+    /**
+     * 解析文档内容
+     */
+    private DocumentContent parseContent(InputStream inputStream, String filename)
+            throws IOException, TikaException, org.xml.sax.SAXException {
+        // 创建解析器
+        AutoDetectParser parser = new AutoDetectParser();
+
+        // 创建内容处理器（限制最大文本长度，防止 OOM）
+        BodyContentHandler handler = new BodyContentHandler(MAX_TEXT_LENGTH);
+
+        // 创建元数据容器
+        Metadata metadata = new Metadata();
+        metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, filename);
+
+        // 创建解析上下文
+        ParseContext context = new ParseContext();
+
+        // 关键配置1：将 Parser 注册到 Context
+        context.set(Parser.class, parser);
+
+        // 关键配置2：禁用嵌入文档提取（解决"图片引用污染"问题）
+        context.set(EmbedderDocumentExtractor.class, new NoOpEmbeddedDocumentExtractor());
+
+        // 关键配置3：PDF 专用配置
+        PDFParserConfig pdfConfig = new PDFParserConfig();
+        pdfConfig.setExtractInlineImages(false); // 不提取内嵌图片
+        context.set(PDFParserConfig.class, pdfConfig);
+
+        // 解析文档
+        parser.parse(inputStream, handler, metadata, context);
+
+        // 提取内容
+        String content = handler.toString();
+
+        // 构建结果
+        return DocumentContent.builder()
+                .title(extractTitle(metadata, filename))
+                .content(content)
+                .author(metadata.get(TikaCoreProperties.CREATOR))
+                .creationDate(parseDate(metadata.get(TikaCoreProperties.CREATED)))
+                .modifiedDate(parseDate(metadata.get(TikaCoreProperties.MODIFIED)))
+                .build();
+    }
+
+    /**
+     * 提取文档标题
+     */
+    private String extractTitle(Metadata metadata, String filename) {
+        String title = metadata.get(TikaCoreProperties.TITLE);
+        if (title != null && !title.trim().isEmpty()) {
+            return title.trim();
+        }
+        if (filename != null) {
+            int lastDotIndex = filename.lastIndexOf('.');
+            return lastDotIndex > 0 ? filename.substring(0, lastDotIndex) : filename;
+        }
+        return "Untitled";
+    }
+
+    /**
+     * 解析日期字符串
+     */
+    private java.time.LocalDateTime parseDate(String dateStr) {
+        if (dateStr == null || dateStr.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return java.time.LocalDateTime.parse(
+                    dateStr.replace("T", " ").replace("Z", "").substring(0, 19));
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -113,8 +191,9 @@ public class KnowledgeImportService {
             // 立即更新状态
             updateStatus(docId, ImportStatus.PARSING);
 
-            // 读取文件内容到字节数组
+            // 读取文件内容到字节数组（在主线程中）
             byte[] fileBytes = file.getBytes();
+            log.info("文件已读取: docId={}, size={}", docId, fileBytes.length);
 
             // 异步处理
             processFileAsync(docId, fileBytes, file.getOriginalFilename(),
