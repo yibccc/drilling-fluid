@@ -22,7 +22,13 @@
       "Bash(mvn clean test -Dtest=DiagnosisPropertiesTest)",
       "Bash(mvn test -Dtest=Diagnosis*Test)",
       "Bash(~/.zshrc)",
-      "Bash(source ~/.mavenrc)"
+      "Bash(source ~/.mavenrc)",
+      "Bash(mvn test:*)",
+      "Bash(git add:*)",
+      "Bash(uv run:*)",
+      "Bash(tail:*)",
+      "mcp__context7__query-docs",
+      "mcp__auggie-mcp__codebase-retrieval"
     ]
   }
 }

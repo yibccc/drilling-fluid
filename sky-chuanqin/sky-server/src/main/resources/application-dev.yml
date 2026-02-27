@@ -5,9 +5,9 @@ sky:
     username: root
     password: 9988741
   redis:
-    host: 47.113.226.70
+    host: localhost
     port: 6379
-    password: F2345678.
-    database: 10
+    password: root
+    database: 0
 
 

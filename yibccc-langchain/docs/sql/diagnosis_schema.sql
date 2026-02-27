@@ -14,8 +14,18 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
     content TEXT NOT NULL,
     metadata JSONB,
     chunk_count INT DEFAULT 0,
+    import_status VARCHAR(20) DEFAULT 'PENDING',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 添加导入状态约束
+ALTER TABLE knowledge_documents
+ADD CONSTRAINT chk_import_status
+CHECK (import_status IN ('PENDING', 'PARSING', 'PARSED', 'QUEUED', 'CHUNKING', 'EMBEDDING', 'COMPLETED', 'FAILED'));
+
+-- 添加导入状态索引
+CREATE INDEX IF NOT EXISTS idx_knowledge_documents_import_status
+ON knowledge_documents(import_status);
 
 -- 子分块表（用于向量检索）
 CREATE TABLE IF NOT EXISTS knowledge_chunks (
