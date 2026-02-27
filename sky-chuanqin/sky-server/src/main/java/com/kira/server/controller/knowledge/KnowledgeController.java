@@ -50,19 +50,36 @@ public class KnowledgeController {
         // 验证文件
         validateFile(file);
 
-        // 异步处理文件
-        String docId = importService.processFileAsync(file, category, subcategory);
+        try {
+            // 生成文档 ID
+            String docId = importService.generateDocId();
 
-        KnowledgeUploadResponse response = KnowledgeUploadResponse.builder()
-                .docId(docId)
-                .title(file.getOriginalFilename())
-                .status(ImportStatus.PARSING.name())
-                .message("文件正在处理中")
-                .fileSize(file.getSize())
-                .contentType(file.getContentType())
-                .build();
+            // 立即更新状态
+            importService.updateStatus(docId, ImportStatus.PARSING);
 
-        return Result.success(response);
+            // 读取文件内容到字节数组（在主线程中）
+            byte[] fileBytes = file.getBytes();
+            log.info("文件已读取: docId={}, size={}", docId, fileBytes.length);
+
+            // 异步处理
+            importService.processFileAsync(docId, fileBytes, file.getOriginalFilename(),
+                    file.getContentType(), file.getSize(), category, subcategory);
+
+            KnowledgeUploadResponse response = KnowledgeUploadResponse.builder()
+                    .docId(docId)
+                    .title(file.getOriginalFilename())
+                    .status(ImportStatus.PARSING.name())
+                    .message("文件正在处理中")
+                    .fileSize(file.getSize())
+                    .contentType(file.getContentType())
+                    .build();
+
+            return Result.success(response);
+
+        } catch (Exception e) {
+            log.error("启动异步处理失败: {}", e.getMessage(), e);
+            throw new RuntimeException("文件处理失败: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -99,7 +116,19 @@ public class KnowledgeController {
                     continue;
                 }
 
-                String docId = importService.processFileAsync(file, category, null);
+                // 生成文档 ID
+                String docId = importService.generateDocId();
+
+                // 更新状态
+                importService.updateStatus(docId, ImportStatus.PARSING);
+
+                // 读取文件内容到字节数组（在主线程中）
+                byte[] fileBytes = file.getBytes();
+
+                // 异步处理
+                importService.processFileAsync(docId, fileBytes, file.getOriginalFilename(),
+                        file.getContentType(), file.getSize(), category, null);
+
                 results.put(file.getOriginalFilename(), docId);
                 successCount++;
 

@@ -19,7 +19,6 @@ import org.apache.tika.embedder.NoOpEmbeddedDocumentExtractor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -182,33 +181,6 @@ public class KnowledgeImportService {
     }
 
     /**
-     * 兼容旧接口：处理 MultipartFile（转换为字节数组后异步处理）
-     */
-    public String processFileAsync(MultipartFile file, String category, String subcategory) {
-        String docId = generateDocId();
-
-        try {
-            // 立即更新状态
-            updateStatus(docId, ImportStatus.PARSING);
-
-            // 读取文件内容到字节数组（在主线程中）
-            byte[] fileBytes = file.getBytes();
-            log.info("文件已读取: docId={}, size={}", docId, fileBytes.length);
-
-            // 异步处理
-            processFileAsync(docId, fileBytes, file.getOriginalFilename(),
-                    file.getContentType(), file.getSize(), category, subcategory);
-
-            return docId;
-
-        } catch (Exception e) {
-            log.error("启动异步处理失败: docId={}, error={}", docId, e.getMessage(), e);
-            updateStatus(docId, ImportStatus.FAILED);
-            return docId;
-        }
-    }
-
-    /**
      * 获取文档状态
      *
      * @param docId 文档 ID
@@ -230,7 +202,7 @@ public class KnowledgeImportService {
      * @param docId  文档 ID
      * @param status 导入状态
      */
-    private void updateStatus(String docId, ImportStatus status) {
+    public void updateStatus(String docId, ImportStatus status) {
         String statusKey = STATUS_PREFIX + docId;
         redisTemplate.opsForValue().set(statusKey, status.name());
         log.debug("更新文档状态: docId={}, status={}", docId, status);
