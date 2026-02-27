@@ -11,6 +11,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -36,49 +37,94 @@ public class KnowledgeImportService {
     private static final String STATUS_PREFIX = "knowledge:status:";
 
     /**
-     * 异步处理文件
+     * 同步生成文档 ID（立即返回）
      *
-     * @param file       上传的文件
-     * @param category   文档分类
-     * @param subcategory 文档子分类
      * @return 文档 ID
      */
-    @Async("taskExecutor")
-    public String processFileAsync(MultipartFile file, String category, String subcategory) {
-        String docId = generateDocId();
-        log.info("开始处理文件: docId={}, filename={}", docId, file.getOriginalFilename());
+    public String generateDocId() {
+        return "DOC-" + System.currentTimeMillis() + "-" +
+                UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
 
+    /**
+     * 异步处理文件
+     *
+     * @param docId      文档 ID（预先生成）
+     * @param fileBytes   文件字节数组
+     * @param filename   文件名
+     * @param contentType 内容类型
+     * @param fileSize   文件大小
+     * @param category    文档分类
+     * @param subcategory 文档子分类
+     */
+    @Async("taskExecutor")
+    public void processFileAsync(String docId, byte[] fileBytes, String filename,
+                                  String contentType, long fileSize, String category, String subcategory) {
         try {
+            log.info("开始处理文件: docId={}, filename={}", docId, filename);
+
             // 1. 更新状态：PARSING
             updateStatus(docId, ImportStatus.PARSING);
 
-            // 2. Tika 解析
-            DocumentContent content = tikaParser.parse(file);
+            // 2. 将字节数组转换为 MockMultipartFile 供 Tika 使用
+            org.springframework.mock.web.MockMultipartFile mockFile =
+                    new org.springframework.mock.web.MockMultipartFile(
+                            "file",
+                            filename,
+                            contentType,
+                            fileBytes
+                    );
+
+            // 3. Tika 解析
+            DocumentContent content = tikaParser.parse(mockFile);
             log.info("Tika 解析完成: docId={}, contentLength={}", docId, content.getContentLength());
 
-            // 3. 构建元数据
+            // 4. 构建元数据
             DocumentMetadata metadata = DocumentMetadata.builder()
-                    .originalFilename(file.getOriginalFilename())
-                    .contentType(file.getContentType())
-                    .fileSize(file.getSize())
+                    .originalFilename(filename)
+                    .contentType(contentType)
+                    .fileSize(fileSize)
                     .createdAt(LocalDateTime.now())
                     .category(category)
                     .subcategory(subcategory)
                     .build();
 
-            // 4. 发送 Redis Stream 消息（包含文档内容和元数据）
+            // 5. 发送 Redis Stream 消息
             sendImportMessage(docId, content, metadata);
 
-            // 5. 更新状态：QUEUED
+            // 6. 更新状态：QUEUED
             updateStatus(docId, ImportStatus.QUEUED);
 
             log.info("文件处理完成，已入队: docId={}", docId);
-            return docId;
 
         } catch (Exception e) {
             log.error("文件处理失败: docId={}, error={}", docId, e.getMessage(), e);
             updateStatus(docId, ImportStatus.FAILED);
-            // 即使失败也返回 docId，让调用方可以追踪
+        }
+    }
+
+    /**
+     * 兼容旧接口：处理 MultipartFile（转换为字节数组后异步处理）
+     */
+    public String processFileAsync(MultipartFile file, String category, String subcategory) {
+        String docId = generateDocId();
+
+        try {
+            // 立即更新状态
+            updateStatus(docId, ImportStatus.PARSING);
+
+            // 读取文件内容到字节数组
+            byte[] fileBytes = file.getBytes();
+
+            // 异步处理
+            processFileAsync(docId, fileBytes, file.getOriginalFilename(),
+                    file.getContentType(), file.getSize(), category, subcategory);
+
+            return docId;
+
+        } catch (Exception e) {
+            log.error("启动异步处理失败: docId={}, error={}", docId, e.getMessage(), e);
+            updateStatus(docId, ImportStatus.FAILED);
             return docId;
         }
     }
