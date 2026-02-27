@@ -1802,4 +1802,206 @@ git commit -m "test: 添加知识库导入集成测试"
 4. **批量导入优化**: 支持上传 ZIP 压缩包自动解压
 5. **错误重试**: 失败文档自动重新处理
 6. **文档版本管理**: 支持同一文档的多个版本
+
+---
+
+## 调试与故障排查
+
+> **更新日期**: 2026-02-27
+> **基于实际部署经验**
+
+### 常见问题与解决方案
+
+#### 1. API 响应字段命名问题
+
+**问题**: 测试脚本提取 docId 为 null
+
+**原因**: DTO 使用 `@JsonProperty("doc_id")` 返回 snake_case，但前端使用 camelCase
+
+**解决方案**:
+```java
+// KnowledgeUploadResponse.java - 正确的命名
+@JsonProperty("doc_id")
+private String docId;
+
+@JsonProperty("import_status")
+private String status;
+```
+
+测试脚本应使用:
+```bash
+DOC_ID=$(echo "${RESPONSE}" | jq -r '.data.doc_id')  # 注意是 doc_id
+```
+
+#### 2. Redis 配置不一致
+
+**问题**: Java 发送消息但 Python 消费者无反应
+
+**原因**: 两边连接到不同的 Redis 实例
+
+**配置同步**:
+
+Java (`application-dev.yml`):
+```yaml
+sky:
+  redis:
+    host: localhost
+    port: 6379
+    password: root
+    database: 0
+```
+
+Python (`.env`):
+```bash
+REDIS_URL=redis://:root@localhost:6379
+REDIS_DB=0
+```
+
+#### 3. 异步方法返回值问题
+
+**问题**: 编译错误 "async method must return void or CompletableFuture"
+
+**原因**: `@Async` 方法不应有返回值（或返回 CompletableFuture）
+
+**解决方案**:
+```java
+@Async
+public void processFileAsync(...) {
+    // 使用 void 而不是 String
+}
+```
+
+#### 4. MultipartFile 流已读取问题
+
+**问题**: "Stream has been closed" 或内容为空
+
+**原因**: MultipartFile 的 InputStream 只能读取一次
+
+**解决方案**:
+```java
+// 在主线程中读取到字节数组
+byte[] fileBytes = file.getBytes();
+
+// 传递字节数组给异步方法
+importService.processFileAsync(docId, fileBytes, ...);
+```
+
+#### 5. 日志配置
+
+**Java 日志** (`application.yml`):
+```yaml
+logging:
+  level:
+    com.kira.server:
+      controller: info
+      service: info
+```
+
+**Python 日志** (`main.py`):
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s - %(name)s - %(message)s'
+)
+```
+
+### 诊断命令
+
+```bash
+# 检查 Redis Stream
+redis-cli -h localhost -p 6379 -a root -n 0 \
+  XRANGE stream:knowledge_import - + COUNT 5
+
+# 检查 Redis 状态
+redis-cli -h localhost -p 6379 -a root -n 0 \
+  GET "knowledge:status:DOC-xxx"
+
+# 检查数据库文档
+PGPASSWORD=root docker exec -i pgvector psql -U postgres -d langchain_db \
+  -c "SELECT doc_id, import_status FROM knowledge_documents ORDER BY created_at DESC LIMIT 5;"
+
+# 检查分块数量
+PGPASSWORD=root docker exec -i pgvector psql -U postgres -d langchain_db \
+  -c "SELECT parent_doc_id, COUNT(*) FROM knowledge_chunks GROUP BY parent_doc_id;"
+```
+
+### 测试脚本
+
+完整的测试验证脚本 (`shs/test_knowledge_import.sh`):
+
+```bash
+#!/bin/bash
+BASE_URL="http://localhost:18080"
+TEST_FILE="/path/to/test.txt"
+
+echo "=== 知识库文件导入测试 ==="
+
+# 1. 单文件上传
+echo "1. 测试单文件上传..."
+RESPONSE=$(curl -X POST "${BASE_URL}/api/knowledge/upload" \
+  -F "file=@${TEST_FILE}" \
+  -F "category=nature" \
+  -F "subcategory=landscape")
+
+echo "响应: ${RESPONSE}"
+
+# 提取 docId (注意使用 snake_case)
+DOC_ID=$(echo "${RESPONSE}" | jq -r '.data.doc_id')
+echo "文档 ID: ${DOC_ID}"
+
+# 2. 轮询状态
+echo "2. 查询文档状态..."
+for i in {1..10}; do
+  STATUS=$(curl -s "${BASE_URL}/api/knowledge/documents/${DOC_ID}/status")
+  IMPORT_STATUS=$(echo "${STATUS}" | jq -r '.data.importStatus')
+  echo "第 ${i} 次: ${IMPORT_STATUS}"
+
+  if [ "${IMPORT_STATUS}" = "COMPLETED" ] || [ "${IMPORT_STATUS}" = "FAILED" ]; then
+    echo "最终状态: ${IMPORT_STATUS}"
+    break
+  fi
+  sleep 3
+done
+
+# 3. 批量上传
+echo "3. 测试批量上传..."
+RESPONSE=$(curl -X POST "${BASE_URL}/api/knowledge/upload/batch" \
+  -F "files=@${TEST_FILE}" \
+  -F "files=@${TEST_FILE}" \
+  -F "category=test")
+echo "响应: ${RESPONSE}"
+
+echo "=== 测试完成 ==="
+```
+
+### 完整部署检查清单
+
+**环境准备**:
+- [ ] Redis 服务运行 (localhost:6379)
+- [ ] PostgreSQL + pgvector 运行
+- [ ] pgvector 扩展已安装 (`CREATE EXTENSION vector;`)
+- [ ] 数据库表已创建
+
+**Java 服务**:
+- [ ] application-dev.yml Redis 配置正确
+- [ ] Tika 依赖已添加
+- [ ] 服务启动在 18080 端口
+- [ ] 日志显示 "文件处理完成，已入队"
+
+**Python 服务**:
+- [ ] .env Redis URL 配置正确
+- [ ] .env PostgreSQL 配置正确
+- [ ] DashScope API Key 已配置
+- [ ] 服务启动在 8000 端口
+- [ ] 日志显示 "KnowledgeImportConsumer started"
+- [ ] 日志显示 "Worker started as worker-xxx"
+
+**集成测试**:
+- [ ] 单文件上传成功
+- [ ] 状态查询显示 COMPLETED
+- [ ] 数据库中有文档记录
+- [ ] 数据库中有分块记录
+- [ ] 分块的 embedding 字段不为空
 7. **权限控制**: 按用户/组织隔离知识库

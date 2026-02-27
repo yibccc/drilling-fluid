@@ -137,7 +137,7 @@ class KnowledgeImportConsumer:
             await self._update_import_status(doc_id, "CHUNKING")
 
             # 3. 父子分块
-            all_chunks = await self._create_chunks(content)
+            all_chunks = self._create_chunks(content)
 
             logger.info(f"文档分块完成: docId={doc_id}, chunks={len(all_chunks)}")
 

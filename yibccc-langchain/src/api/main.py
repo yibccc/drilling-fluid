@@ -29,6 +29,11 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     global _knowledge_import_consumer
 
+    print("=" * 50)
+    print("LIFESPAN: Starting up...")
+    print("=" * 50)
+    logging.info("=== LIFESPAN: Starting up ===")
+
     # 启动
     await pg_repo.connect()
 
@@ -111,4 +116,16 @@ async def debug_diagnosis():
         "diagnosis_service_type": str(type(diagnosis_service)) if diagnosis_service else None,
         "module_id": id(diagnosis_service_module.diagnosis_service),
         "imported_id": id(diagnosis_service) if diagnosis_service else None
+    }
+
+
+@app.get("/debug/consumer")
+async def debug_consumer():
+    """调试端点：检查知识导入消费者状态"""
+    global _knowledge_import_consumer
+    return {
+        "consumer_is_none": _knowledge_import_consumer is None,
+        "consumer_running": _knowledge_import_consumer.running if _knowledge_import_consumer else None,
+        "consumer_name": _knowledge_import_consumer.consumer_name if _knowledge_import_consumer else None,
+        "redis_url": str(settings.redis_url)
     }

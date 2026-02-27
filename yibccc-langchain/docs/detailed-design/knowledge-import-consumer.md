@@ -1,8 +1,8 @@
 # 知识库导入消费者 - 详细设计文档
 
 > **实现状态**: 已完成
-> **最后更新**: 2026-02-26
-> **版本**: v1.0
+> **最后更新**: 2026-02-27
+> **版本**: v1.1
 
 ## 实现状态概览
 
@@ -127,10 +127,12 @@ await conn.set_type_codec(
     'vector',
     encoder=lambda v: str(v),  # list[float] -> "[0.1, 0.2, ...]"
     decoder=lambda v: [float(x) for x in v.strip('[]').split(',')],
-    schema='pg_catalog',
+    schema='public',  # 注意: vector 类型在 public schema，不是 pg_catalog
     format='text'
 )
 ```
+
+**重要**: `vector` 类型在 PostgreSQL 的 `public` schema 中，不是 `pg_catalog`。
 
 ### 4.2 批量 Embedding
 
@@ -284,3 +286,272 @@ uv run pytest tests/services/test_knowledge_import_consumer.py -v
 | `api/main.py` | 应用入口（集成启动） |
 | `tests/services/test_knowledge_import_consumer.py` | 消费者测试 |
 | `tests/repositories/test_knowledge_repo_vector_fix.py` | 向量测试 |
+
+---
+
+## 12. 调试与故障排查
+
+> **更新日期**: 2026-02-27
+> **基于实际部署和调试经验**
+
+### 12.1 常见问题
+
+#### 问题 1: docId 提取为 null
+
+**症状**: 测试脚本显示 `文档 ID: null`，状态查询失败
+
+**原因**: API 响应使用 snake_case (`doc_id`)，但测试脚本使用 camelCase (`docId`)
+
+**解决方案**:
+```bash
+# 修正测试脚本 (shs/test_knowledge_import.sh)
+DOC_ID=$(echo "${RESPONSE}" | jq -r '.data.doc_id')  # 使用 doc_id
+```
+
+#### 问题 2: 消费者无日志输出
+
+**症状**: Python 服务运行但看不到任何消费者日志
+
+**原因**: Python `logging` 模块未配置
+
+**解决方案**: 在 `main.py` 中添加日志配置:
+```python
+import logging
+
+def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(levelname)s - %(name)s - %(message)s'
+    )
+    uvicorn.run(...)
+```
+
+#### 问题 3: 状态卡在 QUEUED
+
+**症状**: 导入状态始终为 QUEUED，无 Python 处理日志
+
+**原因**: Java 和 Python 连接到不同的 Redis 实例
+
+**解决方案**: 确保两边使用相同的 Redis 配置:
+
+**Java** (`application-dev.yml`):
+```yaml
+sky:
+  redis:
+    host: localhost
+    port: 6379
+    password: root
+    database: 0
+```
+
+**Python** (`.env`):
+```bash
+REDIS_URL=redis://:root@localhost:6379
+REDIS_DB=0
+```
+
+#### 问题 4: `TypeError: object list can't be used in 'await' expression`
+
+**症状**: 消费者处理时报错
+
+**原因**: `_create_chunks` 是同步方法，但代码错误地使用了 `await`
+
+**解决方案**:
+```python
+# 修正前
+all_chunks = await self._create_chunks(content)
+
+# 修正后
+all_chunks = self._create_chunks(content)  # 移除 await
+```
+
+#### 问题 5: `ValueError: unknown type: pg_catalog.vector`
+
+**症状**: 向量存储失败，asyncpg 无法识别 vector 类型
+
+**原因**: `vector` 类型在 `public` schema，不是 `pg_catalog`
+
+**解决方案**:
+1. 确保 pgvector 扩展已安装:
+```bash
+docker exec -i pgvector psql -U postgres -d langchain_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+2. 验证类型位置:
+```sql
+SELECT typname, typnamespace::regnamespace FROM pg_type WHERE typname = 'vector';
+-- 应返回: vector | public
+```
+
+3. 修正编解码器配置:
+```python
+await conn.set_type_codec(
+    'vector',
+    encoder=lambda v: str(v),
+    decoder=lambda v: [float(x) for x in v.strip('[]').split(',')],
+    schema='public',  # 使用 public 而非 pg_catalog
+    format='text'
+)
+```
+
+### 12.2 诊断检查清单
+
+部署前检查:
+
+- [ ] PostgreSQL 安装了 pgvector 扩展
+- [ ] Java 和 Python 使用相同的 Redis 配置
+- [ ] Python 日志已正确配置
+- [ ] 测试脚本使用正确的字段名 (`doc_id`)
+- [ ] 数据库表结构已创建 (knowledge_documents, knowledge_chunks)
+
+运行时检查:
+
+- [ ] Python 服务启动日志包含 "KnowledgeImportConsumer started"
+- [ ] Python 服务启动日志包含 "Worker started as worker-xxx"
+- [ ] Java 日志显示 "已发送知识库导入消息"
+- [ ] Redis 中存在 `stream:knowledge_import` 流
+
+### 12.3 测试脚本
+
+完整的测试脚本 (`shs/test_knowledge_import.sh`):
+
+```bash
+#!/bin/bash
+BASE_URL="http://localhost:18080"
+TEST_FILE="/path/to/test.txt"
+
+echo "=== 知识库文件导入测试 ==="
+
+# 1. 单文件上传
+echo "1. 测试单文件上传..."
+RESPONSE=$(curl -X POST "${BASE_URL}/api/knowledge/upload" \
+  -F "file=@${TEST_FILE}" \
+  -F "category=nature" \
+  -F "subcategory=landscape")
+
+echo "响应: ${RESPONSE}"
+
+# 注意: 使用 doc_id (snake_case) 不是 docId
+DOC_ID=$(echo "${RESPONSE}" | jq -r '.data.doc_id')
+echo "文档 ID: ${DOC_ID}"
+
+# 2. 轮询状态
+echo "2. 查询文档状态..."
+for i in {1..10}; do
+  STATUS=$(curl -s "${BASE_URL}/api/knowledge/documents/${DOC_ID}/status")
+  IMPORT_STATUS=$(echo "${STATUS}" | jq -r '.data.importStatus')
+  echo "第 ${i} 次: ${IMPORT_STATUS}"
+
+  if [ "${IMPORT_STATUS}" = "COMPLETED" ] || [ "${IMPORT_STATUS}" = "FAILED" ]; then
+    break
+  fi
+  sleep 3
+done
+
+echo "=== 测试完成 ==="
+```
+
+### 12.4 状态码参考
+
+| 状态 | 说明 | 位置 |
+|------|------|------|
+| PARSING | Java 正在解析文件 | Redis |
+| QUEUED | 已入队，等待 Python 处理 | Redis |
+| CHUNKING | Python 正在分块 | Redis |
+| EMBEDDING | 正在生成向量 | Redis |
+| COMPLETED | 导入完成 | Redis |
+| FAILED | 导入失败 | Redis |
+| UNKNOWN | 文档不存在或状态过期 | Redis |
+
+### 12.5 调试端点
+
+FastAPI 提供的调试端点:
+
+```bash
+# 健康检查
+curl http://localhost:8000/health
+
+# 消费者状态
+curl http://localhost:8000/debug/consumer
+
+# 诊断服务状态
+curl http://localhost:8000/debug/diagnosis
+```
+
+---
+
+## 附录: 快速部署指南
+
+### 1. 数据库准备
+
+```bash
+# 启动 pgvector Docker 容器
+docker run -d --name pgvector \
+  -p 5432:5432 \
+  -e POSTGRES_PASSWORD=root \
+  -e POSTGRES_DB=langchain_db \
+  pgvector/pgvector:pg17
+
+# 安装扩展
+docker exec -i pgvector psql -U postgres -d langchain_db \
+  -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# 创建表 (执行 knowledge_import_schema.sql)
+```
+
+### 2. 配置文件
+
+**Java** (`sky-server/src/main/resources/application-dev.yml`):
+```yaml
+sky:
+  redis:
+    host: localhost
+    port: 6379
+    password: root
+    database: 0
+```
+
+**Python** (`yibccc-langchain/.env`):
+```bash
+# Redis
+REDIS_URL=redis://:root@localhost:6379
+REDIS_DB=0
+
+# PostgreSQL
+PG_HOST=localhost
+PG_PORT=5432
+PG_DATABASE=langchain_db
+PG_USER=postgres
+PG_PASSWORD=root
+
+# Embedding (DashScope)
+DASHSCOPE_API_KEY=your_key_here
+EMBEDDING_MODEL=text-embedding-v3
+```
+
+### 3. 启动服务
+
+```bash
+# 1. 启动 Redis (本地)
+redis-server
+
+# 2. 启动 Java Spring Boot
+cd sky-chuanqin/sky-server
+./mvnw spring-boot:run
+
+# 3. 启动 Python FastAPI
+cd yibccc-langchain
+uv run main.py
+```
+
+### 4. 验证
+
+```bash
+# 运行测试脚本
+cd shs
+sh test_knowledge_import.sh
+
+# 检查数据库
+docker exec -i pgvector psql -U postgres -d langchain_db \
+  -c "SELECT doc_id, title, import_status FROM knowledge_documents;"
+```

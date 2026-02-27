@@ -14,8 +14,6 @@ import org.apache.tika.parser.ParseContext;
 import org.apache.tika.parser.Parser;
 import org.apache.tika.parser.pdf.PDFParserConfig;
 import org.apache.tika.sax.BodyContentHandler;
-import org.apache.tika.embedder.EmbedderDocumentExtractor;
-import org.apache.tika.embedder.NoOpEmbeddedDocumentExtractor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -126,10 +124,7 @@ public class KnowledgeImportService {
         // 关键配置1：将 Parser 注册到 Context
         context.set(Parser.class, parser);
 
-        // 关键配置2：禁用嵌入文档提取（解决"图片引用污染"问题）
-        context.set(EmbedderDocumentExtractor.class, new NoOpEmbeddedDocumentExtractor());
-
-        // 关键配置3：PDF 专用配置
+        // 关键配置2：PDF 专用配置
         PDFParserConfig pdfConfig = new PDFParserConfig();
         pdfConfig.setExtractInlineImages(false); // 不提取内嵌图片
         context.set(PDFParserConfig.class, pdfConfig);

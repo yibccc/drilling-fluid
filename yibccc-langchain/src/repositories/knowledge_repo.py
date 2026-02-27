@@ -110,12 +110,12 @@ class KnowledgeRepository:
             raise KnowledgeBaseError("Embedding 客户端未配置")
 
         async with self.pool.acquire() as conn:
-            # 注册 pgvector 类型编解码器
+            # 注册 pgvector 类型编解码器 (vector 类型在 public schema)
             await conn.set_type_codec(
                 'vector',
                 encoder=lambda v: str(v),  # list[float] -> vector string
                 decoder=lambda v: [float(x) for x in v.strip('[]').split(',')],
-                schema='pg_catalog',
+                schema='public',
                 format='text'
             )
 
