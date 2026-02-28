@@ -3,8 +3,11 @@ package com.kira.server.service.knowledge;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kira.server.controller.knowledge.dto.DocumentContent;
 import com.kira.server.controller.knowledge.dto.DocumentMetadata;
+import com.kira.server.controller.knowledge.dto.FileRecordDTO;
 import com.kira.server.enums.ImportStatus;
+import com.kira.server.exception.DuplicateFileException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.multipart.MultipartFile;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.exception.TikaException;
 import org.apache.tika.metadata.Metadata;
@@ -40,6 +43,7 @@ public class KnowledgeImportService {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final FileStorageService fileStorageService;
 
     private static final String STREAM_NAME = "stream:knowledge_import";
     private static final String STATUS_PREFIX = "knowledge:status:";
@@ -59,34 +63,39 @@ public class KnowledgeImportService {
      * 异步处理文件
      *
      * @param docId      文档 ID（预先生成）
-     * @param fileBytes   文件字节数组
-     * @param filename   文件名
-     * @param contentType 内容类型
-     * @param fileSize   文件大小
+     * @param file       上传的文件
      * @param category    文档分类
      * @param subcategory 文档子分类
      */
     @Async("taskExecutor")
-    public void processFileAsync(String docId, byte[] fileBytes, String filename,
-                                  String contentType, long fileSize, String category, String subcategory) {
+    public void processFileAsync(String docId, MultipartFile file, String category, String subcategory) {
         try {
+            String filename = file.getOriginalFilename();
             log.info("开始处理文件: docId={}, filename={}", docId, filename);
 
-            // 1. 更新状态：PARSING
+            // 1. 上传文件到 OSS（包含去重检查）
+            FileRecordDTO fileRecord = fileStorageService.uploadAndCheckDuplicate(
+                    file, category, subcategory
+            );
+
+            // 2. 更新状态：PARSING
             updateStatus(docId, ImportStatus.PARSING);
 
-            // 2. 解析文档内容
+            // 3. 读取文件内容用于解析
+            byte[] fileBytes = file.getBytes();
             DocumentContent content = parseContent(new ByteArrayInputStream(fileBytes), filename);
             log.info("Tika 解析完成: docId={}, contentLength={}", docId, content.getContentLength());
 
-            // 3. 构建元数据
+            // 4. 构建元数据
             DocumentMetadata metadata = DocumentMetadata.builder()
                     .originalFilename(filename)
-                    .contentType(contentType)
-                    .fileSize(fileSize)
+                    .contentType(file.getContentType())
+                    .fileSize(file.getSize())
                     .createdAt(LocalDateTime.now())
                     .category(category)
                     .subcategory(subcategory)
+                    .ossPath(fileRecord.getOssPath())
+                    .fileRecordId(fileRecord.getId())
                     .build();
 
             // 4. 发送 Redis Stream 消息
@@ -97,6 +106,9 @@ public class KnowledgeImportService {
 
             log.info("文件处理完成，已入队: docId={}", docId);
 
+        } catch (DuplicateFileException e) {
+            log.warn("文件重复: docId={}, error={}", docId, e.getMessage());
+            updateStatus(docId, ImportStatus.DUPLICATE);
         } catch (Exception e) {
             log.error("文件处理失败: docId={}, error={}", docId, e.getMessage(), e);
             updateStatus(docId, ImportStatus.FAILED);
