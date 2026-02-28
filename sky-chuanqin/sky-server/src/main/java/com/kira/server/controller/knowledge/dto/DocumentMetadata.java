@@ -62,6 +62,16 @@ public class DocumentMetadata implements Serializable {
     private String uploadedBy;
 
     /**
+     * OSS 存储路径
+     */
+    private String ossPath;
+
+    /**
+     * 文件记录 ID
+     */
+    private Long fileRecordId;
+
+    /**
      * 扩展元数据（用于存储额外的自定义字段）
      */
     @Builder.Default
