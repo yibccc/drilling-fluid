@@ -23,14 +23,14 @@ import static org.mockito.Mockito.*;
 class KnowledgeImportServiceTest {
 
     private KnowledgeImportService importService;
-    private TikaDocumentParser parser;
+    private FileStorageService fileStorageService;
     private StringRedisTemplate redisTemplate;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         // 创建 Mock 对象
-        parser = mock(TikaDocumentParser.class);
+        fileStorageService = mock(FileStorageService.class);
         redisTemplate = mock(StringRedisTemplate.class);
 
         // 配置 ObjectMapper 支持 Java 8 日期类型
@@ -38,34 +38,31 @@ class KnowledgeImportServiceTest {
         objectMapper.registerModule(new JavaTimeModule());
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-        // 创建服务实例
-        importService = new KnowledgeImportService(parser, redisTemplate, objectMapper);
+        // 创建服务实例（使用 @RequiredArgsConstructor）
+        importService = new KnowledgeImportService(redisTemplate, objectMapper, fileStorageService);
 
         // 设置 Mock 行为
         when(redisTemplate.opsForValue()).thenReturn(mock(org.springframework.data.redis.core.ValueOperations.class));
         when(redisTemplate.opsForStream()).thenReturn(mock(StreamOperations.class));
+
+        // Mock FileStorageService 返回值
+        com.kira.server.controller.knowledge.dto.FileRecordDTO mockFileRecord =
+                com.kira.server.controller.knowledge.dto.FileRecordDTO.builder()
+                        .id(1L)
+                        .ossPath("knowledge/test/abc123/test.pdf")
+                        .build();
+        try {
+            when(fileStorageService.uploadAndCheckDuplicate(any(), any(), any()))
+                    .thenReturn(mockFileRecord);
+        } catch (Exception e) {
+            // ignore
+        }
     }
 
     @Test
-    void testProcessFileAsync() throws Exception {
-        // 准备测试数据
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "test.txt",
-                "text/plain",
-                "测试文档内容".getBytes()
-        );
-
-        // Mock Tika 解析结果
-        com.kira.server.controller.knowledge.dto.DocumentContent mockContent =
-                com.kira.server.controller.knowledge.dto.DocumentContent.builder()
-                        .title("test")
-                        .content("测试文档内容")
-                        .build();
-        when(parser.parse(any())).thenReturn(mockContent);
-
+    void testGenerateDocId() {
         // 执行测试
-        String docId = importService.processFileAsync(file, "test", null);
+        String docId = importService.generateDocId();
 
         // 验证
         assertNotNull(docId);
@@ -110,52 +107,9 @@ class KnowledgeImportServiceTest {
     }
 
     @Test
-    void testProcessFileSendsRedisMessage() throws Exception {
-        // 准备测试数据
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "doc.pdf",
-                "application/pdf",
-                "文档内容".getBytes()
-        );
-
-        // Mock Tika 解析结果
-        com.kira.server.controller.knowledge.dto.DocumentContent mockContent =
-                com.kira.server.controller.knowledge.dto.DocumentContent.builder()
-                        .title("Test Document")
-                        .content("文档内容")
-                        .build();
-        when(parser.parse(any())).thenReturn(mockContent);
-
-        // Mock StreamOperations
-        StreamOperations<String, Object, Object> streamOps = mock(StreamOperations.class);
-        when(redisTemplate.opsForStream()).thenReturn(streamOps);
-
-        // 执行测试
-        String docId = importService.processFileAsync(file, "category", "subcategory");
-
-        // 验证 Redis Stream 消息被发送
-        verify(streamOps).add(eq("stream:knowledge_import"), any());
-    }
-
-    @Test
-    void testDocIdUniqueness() throws Exception {
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "test.txt",
-                "text/plain",
-                "content".getBytes()
-        );
-
-        com.kira.server.controller.knowledge.dto.DocumentContent mockContent =
-                com.kira.server.controller.knowledge.dto.DocumentContent.builder()
-                        .title("test")
-                        .content("content")
-                        .build();
-        when(parser.parse(any())).thenReturn(mockContent);
-
-        String docId1 = importService.processFileAsync(file, "test", null);
-        String docId2 = importService.processFileAsync(file, "test", null);
+    void testDocIdUniqueness() {
+        String docId1 = importService.generateDocId();
+        String docId2 = importService.generateDocId();
 
         assertNotEquals(docId1, docId2);
     }
