@@ -127,11 +127,22 @@ class KnowledgeImportConsumer:
         content = decode_value(data.get(b'content', b''))
         category = decode_value(data.get(b'category', b'default'))
 
+        # 提取 OSS 相关字段
+        oss_path = decode_value(data.get(b'oss_path', b''))
+        file_record_id = decode_value(data.get(b'file_record_id', b''))
+
+        # 解析 metadata JSON
+        metadata_json = decode_value(data.get(b'metadata', b'{}'))
+        try:
+            metadata = json.loads(metadata_json) if metadata_json else {}
+        except json.JSONDecodeError:
+            metadata = {}
+
         try:
             logger.info(f"开始处理导入: docId={doc_id}")
 
-            # 1. 创建文档记录
-            await self._create_document(doc_id, title, content, category)
+            # 1. 创建文档记录（包含 OSS 信息）
+            await self._create_document(doc_id, title, content, category, oss_path, file_record_id, metadata)
 
             # 2. 更新状态：CHUNKING
             await self._update_import_status(doc_id, "CHUNKING")
@@ -160,7 +171,8 @@ class KnowledgeImportConsumer:
             await self._update_import_status(doc_id, "FAILED", error=str(e))
             await self._redis_client.xack(self.stream_name, self.consumer_group, message_id)
 
-    async def _create_document(self, doc_id: str, title: str, content: str, category: str):
+    async def _create_document(self, doc_id: str, title: str, content: str, category: str,
+                                oss_path: str = None, file_record_id: str = None, metadata: dict = None):
         """创建文档记录"""
         async with self.pool.acquire() as conn:
             # 检查文档是否已存在
@@ -172,6 +184,14 @@ class KnowledgeImportConsumer:
             if existing:
                 logger.info(f"文档已存在，跳过创建: docId={doc_id}")
                 return
+
+            # 构建 metadata，包含 OSS 信息
+            doc_metadata = metadata or {}
+            if oss_path:
+                doc_metadata["oss_path"] = oss_path
+            if file_record_id:
+                doc_metadata["file_record_id"] = file_record_id
+            doc_metadata["source"] = "import"
 
             # 创建新文档
             await conn.execute(
@@ -185,7 +205,7 @@ class KnowledgeImportConsumer:
                 category,
                 content,
                 "CHUNKING",
-                json.dumps({"source": "import"})
+                json.dumps(doc_metadata)
             )
 
     def _create_chunks(self, text: str) -> List[Dict[str, Any]]:
