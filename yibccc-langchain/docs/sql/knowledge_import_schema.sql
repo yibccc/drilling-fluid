@@ -20,7 +20,9 @@ ADD COLUMN IF NOT EXISTS import_status VARCHAR(20) DEFAULT 'PENDING';
 -- 添加导入状态约束
 ALTER TABLE knowledge_documents
 ADD CONSTRAINT chk_import_status
-CHECK (import_status IN ('PENDING', 'PARSING', 'PARSED', 'QUEUED', 'CHUNKING', 'EMBEDDING', 'COMPLETED', 'FAILED'));
+CHECK (import_status IN ('PENDING', 'PARSING', 'PARSED', 'QUEUED', 'CHUNKING', 'EMBEDDING', 'COMPLETED', 'FAILED', 'DUPLICATE'));
+
+-- 添加 DUPLICATE 状态说明：文件重复（文件已存在，拒绝上传）
 
 -- 添加导入状态索引
 CREATE INDEX IF NOT EXISTS idx_knowledge_documents_import_status
@@ -62,6 +64,7 @@ ON knowledge_documents(import_status);
 -- EMBEDDING: 向量化中（正在生成向量）
 -- COMPLETED: 完成（导入流程全部完成）
 -- FAILED: 失败（导入过程中出错）
+-- DUPLICATE: 文件重复（文件已存在，拒绝上传）
 
 -- ============================================
 -- 示例查询
