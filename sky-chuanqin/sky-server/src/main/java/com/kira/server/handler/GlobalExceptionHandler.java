@@ -3,6 +3,7 @@ package com.kira.server.handler;
 import com.kira.common.constant.MessageConstant;
 import com.kira.common.exception.BaseException;
 import com.kira.common.result.Result;
+import com.kira.server.exception.DuplicateFileException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -43,5 +44,16 @@ public class GlobalExceptionHandler {
         }else{
             return Result.error(MessageConstant.UNKNOWN_ERROR);
         }
+    }
+
+    /**
+     * 捕获文件重复异常
+     * @param ex
+     * @return
+     */
+    @ExceptionHandler
+    public Result exceptionHandler(DuplicateFileException ex){
+        log.warn("文件重复：{}", ex.getMessage());
+        return Result.error(ex.getMessage());
     }
 }
