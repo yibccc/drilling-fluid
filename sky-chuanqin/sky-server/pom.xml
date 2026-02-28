@@ -161,6 +161,12 @@
             <artifactId>tika-parsers-standard-package</artifactId>
         </dependency>
 
+        <!-- Aliyun OSS SDK for file storage -->
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
