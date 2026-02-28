@@ -45,7 +45,12 @@ public enum ImportStatus {
     /**
      * 失败 - 导入过程中出错
      */
-    FAILED("失败", 7);
+    FAILED("失败", 7),
+
+    /**
+     * 文件重复 - 文件已存在，拒绝上传
+     */
+    DUPLICATE("文件重复", 8);
 
     /**
      * 状态描述
