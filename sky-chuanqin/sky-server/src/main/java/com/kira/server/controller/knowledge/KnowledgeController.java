@@ -57,13 +57,8 @@ public class KnowledgeController {
             // 立即更新状态
             importService.updateStatus(docId, ImportStatus.PARSING);
 
-            // 读取文件内容到字节数组（在主线程中）
-            byte[] fileBytes = file.getBytes();
-            log.info("文件已读取: docId={}, size={}", docId, fileBytes.length);
-
-            // 异步处理
-            importService.processFileAsync(docId, fileBytes, file.getOriginalFilename(),
-                    file.getContentType(), file.getSize(), category, subcategory);
+            // 异步处理（直接传递 MultipartFile）
+            importService.processFileAsync(docId, file, category, subcategory);
 
             KnowledgeUploadResponse response = KnowledgeUploadResponse.builder()
                     .docId(docId)
@@ -122,12 +117,8 @@ public class KnowledgeController {
                 // 更新状态
                 importService.updateStatus(docId, ImportStatus.PARSING);
 
-                // 读取文件内容到字节数组（在主线程中）
-                byte[] fileBytes = file.getBytes();
-
-                // 异步处理
-                importService.processFileAsync(docId, fileBytes, file.getOriginalFilename(),
-                        file.getContentType(), file.getSize(), category, null);
+                // 异步处理（直接传递 MultipartFile）
+                importService.processFileAsync(docId, file, category, null);
 
                 results.put(file.getOriginalFilename(), docId);
                 successCount++;
