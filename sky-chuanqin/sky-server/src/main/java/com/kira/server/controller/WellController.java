@@ -5,13 +5,16 @@ import com.kira.server.domain.dto.WellDTO;
 import com.kira.server.domain.entity.Well;
 import com.kira.common.result.Result;
 import com.kira.server.service.IWellService;
+import com.kira.server.service.WellConfigService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
+import io.swagger.annotations.ApiParam;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 /**
  * <p>
@@ -28,6 +31,9 @@ public class WellController {
     
     @Autowired
     private IWellService wellService;
+
+    @Autowired
+    private WellConfigService wellConfigService;
     
     @GetMapping("/list")
     @ApiOperation(value = "获取所有井")
@@ -85,5 +91,53 @@ public class WellController {
     public Result<String> delete(@PathVariable Long id) {
         wellService.removeById(id);
         return Result.success("井删除成功");
+    }
+
+    // ========== 井配置管理接口 ==========
+
+    /**
+     * 添加井到监控列表
+     */
+    @PostMapping("/add")
+    @ApiOperation(value = "添加井到监控列表")
+    public Result<Void> addWell(
+            @ApiParam(value = "井号", required = true, example = "SHB001")
+            @RequestParam String wellId) {
+        wellConfigService.addWell(wellId);
+        return Result.success();
+    }
+
+    /**
+     * 从监控列表移除井
+     */
+    @DeleteMapping("/remove")
+    @ApiOperation(value = "从监控列表移除井")
+    public Result<Void> removeWell(
+            @ApiParam(value = "井号", required = true, example = "SHB001")
+            @RequestParam String wellId) {
+        wellConfigService.removeWell(wellId);
+        return Result.success();
+    }
+
+    /**
+     * 获取所有活跃井
+     */
+    @GetMapping("/active")
+    @ApiOperation(value = "获取所有活跃井")
+    public Result<Set<String>> getActiveWells() {
+        Set<String> activeWells = wellConfigService.getActiveWells();
+        return Result.success(activeWells);
+    }
+
+    /**
+     * 检查井是否活跃
+     */
+    @GetMapping("/check")
+    @ApiOperation(value = "检查井是否活跃")
+    public Result<Boolean> checkWellActive(
+            @ApiParam(value = "井号", required = true, example = "SHB001")
+            @RequestParam String wellId) {
+        boolean isActive = wellConfigService.isWellActive(wellId);
+        return Result.success(isActive);
     }
 }
