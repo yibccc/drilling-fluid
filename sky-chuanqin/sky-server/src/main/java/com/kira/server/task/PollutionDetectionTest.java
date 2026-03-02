@@ -209,6 +209,7 @@ public class PollutionDetectionTest {
 
     /**
      * 发送污染预警WebSocket消息
+     * 改用 sendToWell 按井号推送
      *
      * @param pollutionType 污染类型
      * @param wellId        井ID
@@ -226,10 +227,10 @@ public class PollutionDetectionTest {
 
             // 只在需要发送WebSocket消息时序列化为JSON
             String jsonMessage = objectMapper.writeValueAsString(alertMessage);
-            log.info("发送污染预警WebSocket消息: {}", jsonMessage);
+            log.info("发送污染预警到井 {}: {}", wellId, jsonMessage);
 
-            // 调用WebSocket服务发送消息
-            webSocketServer.sendToAllClient(jsonMessage);
+            // 改用 sendToWell 按井号推送
+            webSocketServer.sendToWell(wellId, jsonMessage);
 
         } catch (Exception e) {
             log.error("发送污染预警WebSocket消息失败: {}", e.getMessage());
@@ -287,6 +288,7 @@ public class PollutionDetectionTest {
 
     /**
      * 发送 AI 诊断预警消息
+     * 改用 sendToWell 按井号推送
      */
     private void sendAiDiagnosisAlert(String alertId, String wellId, String wellLocation,
                                       String alertType, String status) {
@@ -303,9 +305,10 @@ public class PollutionDetectionTest {
             alertMessage.put("diagnosisUrl", "/api/ai/diagnosis/stream?alertId=" + alertId);
 
             String jsonMessage = objectMapper.writeValueAsString(alertMessage);
-            log.info("发送 AI 诊断预警: {}", jsonMessage);
+            log.info("发送 AI 诊断预警到井 {}: {}", wellId, jsonMessage);
 
-            webSocketServer.sendToAllClient(jsonMessage);
+            // 改用 sendToWell 按井号推送
+            webSocketServer.sendToWell(wellId, jsonMessage);
 
         } catch (Exception e) {
             log.error("发送 AI 诊断预警失败: {}", e.getMessage());
