@@ -53,9 +53,6 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="text-embedding-v3", alias="EMBEDDING_MODEL")
     dashscope_api_key: str = Field(default="", alias="DASHSCOPE_API_KEY")
 
-    # ========== 向量存储配置 ==========
-    USE_LANGCHAIN_VECTORSTORE: bool = Field(default=True, alias="USE_LANGCHAIN_VECTORSTORE")
-
     # LangChain PGVector 配置
     LANGCHAIN_CONNECTION_STRING: str = Field(default="", alias="LANGCHAIN_CONNECTION_STRING")
 
