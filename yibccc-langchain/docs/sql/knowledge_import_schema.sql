@@ -2,31 +2,25 @@
 -- 知识库导入功能 - 数据库迁移脚本
 -- ============================================
 -- 项目: drilling-fluid
--- 版本: 1.0.0
--- 更新日期: 2026-02-26
--- 说明: 为 knowledge_documents 表添加 import_status 字段，支持文件导入状态跟踪
+-- 版本: 2.0.0
+-- 更新日期: 2026-03-03
+--
+-- ⚠️ 架构变更通知：
+-- 此脚本已废弃，请使用新的 LangChain PGVector 架构
+--
+-- 新架构特点：
+-- - 使用 LangChain PGVector 自动管理向量存储
+-- - 表结构由 langchain_postgres 自动创建
+-- - 不再需要手动创建 knowledge_documents 和 knowledge_chunks 表
+--
+-- 迁移指南：
+-- 1. 知识上传请使用: POST /api/v1/diagnosis/knowledge/documents
+-- 2. 向量检索由 VectorStoreService 自动处理
+-- 3. 参见: src/services/vector_store_service.py
+--
 -- ============================================
 
--- 检查并添加 pgvector 扩展
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- ============================================
--- 修改 knowledge_documents 表 - 添加导入状态字段
--- ============================================
-
-ALTER TABLE knowledge_documents
-ADD COLUMN IF NOT EXISTS import_status VARCHAR(20) DEFAULT 'PENDING';
-
--- 添加导入状态约束
-ALTER TABLE knowledge_documents
-ADD CONSTRAINT chk_import_status
-CHECK (import_status IN ('PENDING', 'PARSING', 'PARSED', 'QUEUED', 'CHUNKING', 'EMBEDDING', 'COMPLETED', 'FAILED', 'DUPLICATE'));
-
--- 添加 DUPLICATE 状态说明：文件重复（文件已存在，拒绝上传）
-
--- 添加导入状态索引
-CREATE INDEX IF NOT EXISTS idx_knowledge_documents_import_status
-ON knowledge_documents(import_status);
+-- 此文件保留用于参考，请勿在生产环境执行
 
 -- ============================================
 -- 知识库表结构说明

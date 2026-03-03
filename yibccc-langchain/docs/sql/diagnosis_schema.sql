@@ -1,49 +1,41 @@
 -- docs/sql/diagnosis_schema.sql
 -- 钻井液诊断系统相关表结构
+--
+-- 架构说明：
+-- - 知识库使用 LangChain PGVector 自动管理（langchain_pg_* 表）
+-- - 不再需要手动创建 knowledge_documents 和 knowledge_chunks 表
+-- - VectorStoreService 会在首次使用时自动创建必要的表和索引
+--
 
--- pgvector 扩展（用于向量检索）
+-- ============================================
+-- pgvector 扩展（必需）
+-- ============================================
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- 知识文档表（父文档）
-CREATE TABLE IF NOT EXISTS knowledge_documents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    doc_id VARCHAR(100) UNIQUE NOT NULL,
-    title VARCHAR(500) NOT NULL,
-    category VARCHAR(50) NOT NULL,
-    subcategory VARCHAR(100),
-    content TEXT NOT NULL,
-    metadata JSONB,
-    chunk_count INT DEFAULT 0,
-    import_status VARCHAR(20) DEFAULT 'PENDING',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- ============================================
+-- 注意：知识库表由 LangChain PGVector 自动管理
+-- ============================================
+--
+-- LangChain PGVector 会自动创建以下表：
+-- - langchain_pg_collection: 集合元数据
+-- - langchain_pg_embedding: 文档和向量存储
+--
+-- 初始化方式（代码中自动执行）：
+-- from langchain_postgres import PGVector
+--
+-- vector_store = PGVector(
+--     embeddings=embeddings,
+--     collection_name="knowledge_docs",
+--     connection=connection_string,
+--     use_jsonb=True,
+-- )
+--
+-- 首次调用 add_documents() 时会自动创建表结构
+--
 
--- 添加导入状态约束
-ALTER TABLE knowledge_documents
-ADD CONSTRAINT chk_import_status
-CHECK (import_status IN ('PENDING', 'PARSING', 'PARSED', 'QUEUED', 'CHUNKING', 'EMBEDDING', 'COMPLETED', 'FAILED'));
-
--- 添加导入状态索引
-CREATE INDEX IF NOT EXISTS idx_knowledge_documents_import_status
-ON knowledge_documents(import_status);
-
--- 子分块表（用于向量检索）
-CREATE TABLE IF NOT EXISTS knowledge_chunks (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    parent_doc_id VARCHAR(100) NOT NULL,
-    chunk_index INT NOT NULL,
-    content TEXT NOT NULL,
-    embedding vector(1024),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- HNSW 索引（需要 pgvector 扩展）
-CREATE INDEX IF NOT EXISTS idx_chunks_embedding_hnsw
-ON knowledge_chunks
-USING hnsw (embedding vector_cosine_ops)
-WITH (m = 16, ef_construction = 64);
-
+-- ============================================
 -- 诊断任务表
+-- ============================================
 CREATE TABLE IF NOT EXISTS diagnosis_tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id VARCHAR(100) UNIQUE NOT NULL,
