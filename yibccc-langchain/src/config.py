@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="text-embedding-v3", alias="EMBEDDING_MODEL")
     dashscope_api_key: str = Field(default="", alias="DASHSCOPE_API_KEY")
 
+    # ========== 向量存储配置 ==========
+    USE_LANGCHAIN_VECTORSTORE: bool = Field(default=True, alias="USE_LANGCHAIN_VECTORSTORE")
+
+    # LangChain PGVector 配置
+    LANGCHAIN_CONNECTION_STRING: str = Field(default="", alias="LANGCHAIN_CONNECTION_STRING")
+
     # SpringBoot 回调配置
     springboot_callback_timeout: int = Field(default=30, alias="SPRINGBOOT_CALLBACK_TIMEOUT")
     springboot_callback_retry_max: int = Field(default=3, alias="SPRINGBOOT_CALLBACK_RETRY_MAX")
@@ -71,6 +77,13 @@ class Settings(BaseSettings):
         if self.pg_dsn:
             return self.pg_dsn
         return f"postgresql://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
+
+    def get_langchain_connection_string(self) -> str:
+        """获取 LangChain 连接字符串 (使用 psycopg 连接器)"""
+        if self.LANGCHAIN_CONNECTION_STRING:
+            return self.LANGCHAIN_CONNECTION_STRING
+        # 默认使用现有数据库连接，格式为 postgresql+psycopg://
+        return f"postgresql+psycopg://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
 
     def validate_api_key(self, api_key: str) -> bool:
         """验证 API Key"""
