@@ -22,6 +22,7 @@ from src.models.diagnosis_schemas import (
 )
 from src.models.exceptions import DiagnosisError, LLMError
 from src.config import settings, get_llm_config
+from src.agents.diagnosis_middleware import RetrievalMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +73,9 @@ class LLMDiagnosisOutput(BaseModel):
 class DiagnosisAgent:
     """钻井液诊断 Agent"""
 
-    def __init__(self, checkpointer=None):
+    def __init__(self, checkpointer=None, vector_store_service=None):
         self.checkpointer = checkpointer
+        self.vector_store_service = vector_store_service
         self.model = ChatOpenAI(
             **get_llm_config(),
             streaming=True,
@@ -82,6 +84,7 @@ class DiagnosisAgent:
         # 使用 ToolStrategy 处理结构化输出
         self.response_format = ToolStrategy(LLMDiagnosisOutput)
         self.agent = None
+        self.retrieval_middleware = None  # 检索中间件
 
     async def initialize(self):
         """初始化 Agent"""
@@ -100,45 +103,32 @@ class DiagnosisAgent:
             logger.info("DiagnosisAgent cleaned up")
 
     def _build_agent(self):
-        """构建诊断 Agent"""
-        # 定义诊断专用工具
+        """构建诊断 Agent - Two-step Chain 方式"""
+        # 定义诊断专用工具（移除 search_knowledge，由中间件处理）
         from src.tools.diagnosis_tools import (
             analyze_trend,
-            search_knowledge,
             format_prescription
         )
 
+        # 创建检索中间件
+        if self.vector_store_service:
+            self.retrieval_middleware = RetrievalMiddleware(self.vector_store_service)
+
         tools = [
             analyze_trend,
-            search_knowledge,
             format_prescription
         ]
 
-        # 系统提示词
-        system_prompt = """你是一位钻井液性能诊断专家。你的职责是：
+        # 简化系统提示词（上下文由中间件注入）
+        system_prompt = """你是一位钻井液性能诊断专家。
 
+你的职责是：
 1. 分析钻井液采样数据，识别异常趋势
-2. 基于历史数据和知识库，诊断问题原因
+2. 基于知识库内容诊断问题原因
 3. 提供具体的处置措施和配药方案
 4. 评估风险等级并提供趋势预测
 
-请使用提供的工具进行分析：
-- analyze_trend: 分析参数趋势
-- search_knowledge: 检索处置知识
-- format_prescription: 生成配药方案
-
-分析完成后，你需要返回一个结构化的诊断结果，包含以下内容：
-- summary: 诊断总结（一句话概括主要问题）
-- cause: 问题原因（详细分析）
-- risk_level: 风险等级（LOW/MEDIUM/HIGH/CRITICAL）
-- trend_outlook: 趋势展望（可选）
-- trend_analysis: 趋势分析列表（每个包含 field, trend, from_value, to_value, rate, duration）
-- measures: 处置措施列表（每个包含 step, action, duration, amount, priority, notes）
-- prescription: 配药方案（包含 dilution_water, viscosity_reducer, mixing_time, other_agents）
-
-注意：所有数值必须基于实际数据，不要编造。如果某项数据无法确定，可以留空或填写"未知"。
-
-输出应专业、准确、可操作。"""
+分析完成后，返回结构化的诊断结果。"""
 
         self.agent = create_agent(
             model=self.model,
