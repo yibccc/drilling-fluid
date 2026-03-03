@@ -7,7 +7,18 @@
 import pytest
 from datetime import datetime, timedelta
 
-from src.tools.diagnosis_tools import analyze_trend, search_knowledge, format_prescription
+from src.tools.diagnosis_tools import analyze_trend, format_prescription
+
+
+def test_available_tools():
+    """验证可用的工具"""
+    tools = [analyze_trend, format_prescription]
+    assert len(tools) == 2
+    assert all(hasattr(tool, 'name') for tool in tools)
+
+    # 验证 search_knowledge 已移除
+    from src.tools.diagnosis_tools import __all__
+    assert 'search_knowledge' not in __all__
 
 
 class TestAnalyzeTrend:
@@ -142,83 +153,6 @@ class TestAnalyzeTrend:
 
         assert "yield_point" in result.lower()
         assert "下降" in result
-
-
-class TestSearchKnowledge:
-    """search_knowledge 工具测试"""
-
-    def test_search_density_category(self):
-        """测试检索密度分类"""
-        result = search_knowledge.invoke({
-            "query": "密度偏高怎么处理",
-            "category": "density",
-            "top_k": 5
-        })
-
-        assert "density" in result
-        assert "密度偏高处置" in result
-
-    def test_search_viscosity_category(self):
-        """测试检索黏度分类"""
-        result = search_knowledge.invoke({
-            "query": "塑性黏度高怎么办",
-            "category": "viscosity",
-            "top_k": 3
-        })
-
-        assert "viscosity" in result
-        assert "塑性黏度" in result
-
-    def test_search_gel_category(self):
-        """测试检索切力分类"""
-        result = search_knowledge.invoke({
-            "query": "切力偏高处理",
-            "category": "gel",
-            "top_k": 5
-        })
-
-        assert "gel" in result
-        assert "切力" in result
-
-    def test_search_unknown_category(self):
-        """测试检索未知分类"""
-        result = search_knowledge.invoke({
-            "query": "测试查询",
-            "category": "unknown",
-            "top_k": 5
-        })
-
-        assert "未找到相关知识" in result
-
-    def test_search_default_top_k(self):
-        """测试默认 top_k 值"""
-        result = search_knowledge.invoke({
-            "query": "测试查询",
-            "category": "density"
-        })
-
-        assert "density" in result
-
-    def test_search_format(self):
-        """测试检索结果格式"""
-        result = search_knowledge.invoke({
-            "query": "密度偏高",
-            "category": "density",
-            "top_k": 5
-        })
-
-        # 验证格式包含编号
-        assert "1." in result
-        assert "2." in result
-
-    def test_search_includes_query(self):
-        """测试结果包含查询信息"""
-        result = search_knowledge.invoke({
-            "query": "密度偏高处理方法",
-            "category": "density"
-        })
-
-        assert "密度偏高处理方法" in result
 
 
 class TestFormatPrescription:

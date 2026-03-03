@@ -80,51 +80,6 @@ def analyze_trend(
 
 
 @tool
-def search_knowledge(
-    query: Annotated[str, "检索查询语句"],
-    category: Annotated[str, "知识分类，如 'density', 'viscosity', 'gel'"] = "density",
-    top_k: Annotated[int, "返回结果数量"] = 5
-) -> str:
-    """检索专家知识库。
-
-    根据查询语句和分类从知识库中检索相关的处置措施。
-
-    Args:
-        query: 检索查询语句
-        category: 知识分类
-        top_k: 返回结果数量
-
-    Returns:
-        检索结果摘要
-    """
-    # TODO: 集成实际的 RAG 服务
-    # 这里返回模拟数据
-
-    mock_results = {
-        "density": [
-            "密度偏高处置：加水稀释，通常加水量为 5-10%",
-            "密度偏低处置：加重材料如重晶石",
-        ],
-        "viscosity": [
-            "塑性黏度偏高：加水稀释或使用降黏剂",
-            "动切力偏低：提高膨润土含量或增粘剂"
-        ],
-        "gel": [
-            "切力偏高：使用降切剂",
-            "切力偏低：提高膨润土含量"
-        ]
-    }
-
-    results = mock_results.get(category, ["未找到相关知识"])
-
-    output = f"知识检索结果（分类: {category}, 查询: {query}）:\n"
-    for i, r in enumerate(results, 1):
-        output += f"{i}. {r}\n"
-
-    return output
-
-
-@tool
 def format_prescription(
     measures: Annotated[str, "处置措施描述"],
     density: Annotated[float, "当前钻井液密度"] = 1.2,
@@ -168,5 +123,5 @@ def format_prescription(
     return output
 
 
-# 导出所有工具
-__all__ = ["analyze_trend", "search_knowledge", "format_prescription"]
+# 导出所有工具（search_knowledge 已由中间件替代）
+__all__ = ["analyze_trend", "format_prescription"]
