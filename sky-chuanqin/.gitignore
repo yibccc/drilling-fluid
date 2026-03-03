@@ -6,3 +6,6 @@ md
 *.jar
 logs
 workspace.xml
+
+# 环境变量文件
+.env
