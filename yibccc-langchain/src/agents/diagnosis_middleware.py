@@ -3,18 +3,19 @@
 import asyncio
 import logging
 from typing import Any, List
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage
+from langchain.agents.middleware import AgentMiddleware
 
 logger = logging.getLogger(__name__)
 
 
-class RetrievalMiddleware:
+class RetrievalMiddleware(AgentMiddleware):
     """检索中间件 - 自动注入知识库上下文"""
 
     def __init__(self, vector_store_service):
         self.vector_store = vector_store_service
 
-    async def before_model(self, state: dict) -> dict | None:
+    async def abefore_model(self, state: dict, runtime) -> dict | None:
         """在模型调用前执行：检索并注入上下文"""
         try:
             # 1. 提取查询

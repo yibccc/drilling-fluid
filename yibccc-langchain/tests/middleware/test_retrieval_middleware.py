@@ -21,9 +21,10 @@ async def test_middleware_injects_retrieval_context():
         "messages": [MagicMock(content="密度偏高怎么办？")],
         "metadata": {"category": "density"}
     }
+    mock_runtime = MagicMock()
 
     # Act
-    result = await middleware.before_model(state)
+    result = await middleware.abefore_model(state, mock_runtime)
 
     # Assert
     assert result is not None
