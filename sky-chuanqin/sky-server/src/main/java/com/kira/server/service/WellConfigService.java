@@ -41,7 +41,15 @@ public class WellConfigService {
      * 获取所有活跃井
      */
     public Set<String> getActiveWells() {
-        return redisTemplate.opsForSet().members(ACTIVE_WELLS_KEY);
+        Set<Object> members = redisTemplate.opsForSet().members(ACTIVE_WELLS_KEY);
+        if (members == null) {
+            return null;
+        }
+        // 将 Set<Object> 转换为 Set<String>
+        return members.stream()
+                .filter(obj -> obj instanceof String)
+                .map(obj -> (String) obj)
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     /**

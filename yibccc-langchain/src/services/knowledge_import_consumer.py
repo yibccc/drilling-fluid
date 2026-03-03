@@ -13,8 +13,12 @@ import redis.asyncio as aioredis
 
 from src.config import settings
 from src.models.exceptions import KnowledgeBaseError
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import DashScopeEmbeddings
+from src.utils import (
+    create_embeddings_client,
+    create_text_splitter,
+    ensure_consumer_group,
+    decode_value,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -44,26 +48,14 @@ class KnowledgeImportConsumer:
             self._redis_client = aioredis.from_url(settings.redis_url)
 
         # 创建消费组（如果不存在）
-        try:
-            await self._redis_client.xgroup_create(
-                self.stream_name,
-                self.consumer_group,
-                id='0',
-                mkstream=True
-            )
-            logger.info(f"创建消费组: {self.consumer_group}")
-        except Exception as e:
-            error_str = str(e)
-            if "BUSYGROUP" in error_str or "already exists" in error_str.lower():
-                logger.info(f"消费组已存在: {self.consumer_group}")
-            else:
-                logger.warning(f"创建消费组失败: {e}")
+        await ensure_consumer_group(
+            self._redis_client,
+            self.stream_name,
+            self.consumer_group
+        )
 
         # 初始化 embeddings
-        self.embeddings = DashScopeEmbeddings(
-            model=settings.embedding_model,
-            dashscope_api_key=settings.dashscope_api_key,
-        )
+        self.embeddings = create_embeddings_client()
 
         logger.info(f"知识导入消费者启动: {self.consumer_name}")
 
@@ -116,12 +108,6 @@ class KnowledgeImportConsumer:
 
     async def _process_import(self, message_id: str, data: dict):
         """处理单个导入任务"""
-        # 解码 bytes 类型的键值
-        def decode_value(v):
-            if isinstance(v, bytes):
-                return v.decode('utf-8')
-            return v
-
         doc_id = decode_value(data.get(b'doc_id', b''))
         title = decode_value(data.get(b'title', b''))
         content = decode_value(data.get(b'content', b''))
@@ -217,12 +203,7 @@ class KnowledgeImportConsumer:
 
         for parent_idx, parent_chunk in enumerate(parent_chunks):
             # 子分块器
-            child_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=600,
-                chunk_overlap=100,
-                length_function=len,
-            )
-
+            child_splitter = create_text_splitter()
             child_chunks = child_splitter.split_text(parent_chunk)
 
             for child_idx, child_content in enumerate(child_chunks):

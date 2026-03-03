@@ -11,7 +11,7 @@ from typing import AsyncIterator, Dict, Any, Optional, List, Literal
 from pydantic import BaseModel, Field
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain.messages import HumanMessage, AIMessage
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 
@@ -322,33 +322,6 @@ class DiagnosisAgent:
 最后给出诊断结论和风险等级评估。"""
 
         return prompt
-
-    def _parse_result(self, response: str, request: DiagnosisRequest) -> DiagnosisResult:
-        """解析 Agent 响应为结构化结果（已废弃，保留用于向后兼容）"""
-        logger.warning("_parse_result is deprecated, using structured output instead")
-        # 此方法不再使用，由 _convert_to_diagnosis_result 替代
-        from src.models.diagnosis_schemas import (
-            DiagnosisConclusion,
-            TreatmentMeasure,
-            Prescription
-        )
-
-        return DiagnosisResult(
-            diagnosis=DiagnosisConclusion(
-                summary="待实现智能解析",
-                cause="待分析",
-                risk_level="MEDIUM"
-            ),
-            trend_analysis=[],
-            measures=[
-                TreatmentMeasure(
-                    step=1,
-                    action="待完善",
-                    priority="MEDIUM"
-                )
-            ],
-            prescription=Prescription()
-        )
 
     def _convert_to_diagnosis_result(self, output: LLMDiagnosisOutput) -> DiagnosisResult:
         """将 LLM 结构化输出转换为 DiagnosisResult"""

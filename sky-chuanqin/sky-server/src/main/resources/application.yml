@@ -3,7 +3,7 @@ server:
 
 spring:
   profiles:
-    active: dev,xxljob
+    active: dev,xxljob,kafka
   main:
     allow-circular-references: true
   datasource:
@@ -37,6 +37,12 @@ logging:
           mapper: debug
           service: info
           controller: info
+    # Kafka 客户端日志级别（减少冗余日志）
+    org:
+      apache:
+        kafka: warn
+      springframework:
+        kafka: warn
 
 # JWT配置
 jwt:

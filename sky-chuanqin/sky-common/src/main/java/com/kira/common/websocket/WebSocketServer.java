@@ -29,9 +29,6 @@ public class WebSocketServer {
     // Session到井号的映射：sessionId -> wellId
     private static Map<String, String> sessionWellMap = new ConcurrentHashMap<>();
 
-    // 存储 sid -> wellId 的订阅关系（兼容旧代码）
-    private static Map<String, String> sidWellIdMap = new ConcurrentHashMap<>();
-
     /**
      * 连接建立时调用
      * sid格式：wellId_clientType_timestamp
@@ -41,15 +38,11 @@ public class WebSocketServer {
         log.info("客户端：{} 建立连接", sid);
         sessionMap.put(sid, session);
 
-        // 尝试从sid中解析wellId
+        // 从sid中解析wellId并订阅
         String wellId = parseWellIdFromSid(sid);
         if (wellId != null && !wellId.isEmpty()) {
-            // 使用新的数据结构
             wellSessions.computeIfAbsent(wellId, k -> ConcurrentHashMap.newKeySet()).add(session);
             sessionWellMap.put(session.getId(), wellId);
-
-            // 兼容旧代码
-            sidWellIdMap.put(sid, wellId);
             log.info("客户端：{} 自动订阅井：{}", sid, wellId);
         }
     }
@@ -67,28 +60,27 @@ public class WebSocketServer {
             try {
                 String wellId = extractWellId(message);
                 if (wellId != null && !wellId.isEmpty()) {
+                    Session session = sessionMap.get(sid);
+                    if (session == null) {
+                        log.warn("客户端 {} 不存在", sid);
+                        return;
+                    }
+
                     // 从旧订阅中移除
-                    String oldWellId = sidWellIdMap.get(sid);
-                    if (oldWellId != null) {
-                        Session session = sessionMap.get(sid);
-                        if (session != null) {
-                            Set<Session> oldSessions = wellSessions.get(oldWellId);
-                            if (oldSessions != null) {
-                                oldSessions.remove(session);
-                                if (oldSessions.isEmpty()) {
-                                    wellSessions.remove(oldWellId);
-                                }
+                    String oldWellId = sessionWellMap.get(session.getId());
+                    if (oldWellId != null && !oldWellId.equals(wellId)) {
+                        Set<Session> oldSessions = wellSessions.get(oldWellId);
+                        if (oldSessions != null) {
+                            oldSessions.remove(session);
+                            if (oldSessions.isEmpty()) {
+                                wellSessions.remove(oldWellId);
                             }
                         }
                     }
 
                     // 添加到新订阅
-                    sidWellIdMap.put(sid, wellId);
-                    Session session = sessionMap.get(sid);
-                    if (session != null) {
-                        wellSessions.computeIfAbsent(wellId, k -> ConcurrentHashMap.newKeySet()).add(session);
-                        sessionWellMap.put(session.getId(), wellId);
-                    }
+                    wellSessions.computeIfAbsent(wellId, k -> ConcurrentHashMap.newKeySet()).add(session);
+                    sessionWellMap.put(session.getId(), wellId);
 
                     log.info("客户端：{} 订阅井：{}", sid, wellId);
                     sendToClient(sid, "{\"type\":\"subscribed\",\"wellId\":\"" + wellId + "\"}");
@@ -106,9 +98,8 @@ public class WebSocketServer {
     public void onClose(Session session, @PathParam("sid") String sid) {
         log.info("连接断开: {}", sid);
         sessionMap.remove(sid);
-        sidWellIdMap.remove(sid);
 
-        // 从新数据结构中移除
+        // 从井分组中移除
         String wellId = sessionWellMap.remove(session.getId());
         if (wellId != null) {
             Set<Session> sessions = wellSessions.get(wellId);
@@ -225,8 +216,7 @@ public class WebSocketServer {
      * 获取订阅指定井的客户端数量
      */
     public static int getWellSubscriberCount(String wellId) {
-        return (int) sidWellIdMap.values().stream()
-                .filter(id -> id.equals(wellId))
-                .count();
+        Set<Session> sessions = wellSessions.get(wellId);
+        return sessions == null ? 0 : sessions.size();
     }
 }

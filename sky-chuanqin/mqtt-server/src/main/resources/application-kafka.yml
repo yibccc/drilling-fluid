@@ -1,0 +1,27 @@
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9094}
+
+    # ========== 生产者配置 ==========
+    producer:
+      # 等待所有 ISR 副本确认（单副本下即为 1 个）
+      acks: all
+      # 发送失败重试次数
+      retries: 5
+      # 批量发送配置（提高吞吐量）
+      batch-size: 16384
+      # 缓冲区配置
+      buffer-memory: 33554432
+      # 序列化器
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # Kafka 原生配置（通过 properties 传递）
+      properties:
+        # 开启幂等性，防止网络重试导致重复消息
+        enable.idempotence: true
+        # 批量发送等待时间（毫秒）
+        linger.ms: 10
+        # 请求超时
+        delivery.timeout.ms: 30000
+        # 确认超时
+        acks.timeout.ms: 5000

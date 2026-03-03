@@ -21,25 +21,11 @@ class AuthenticationError(AppException):
         super().__init__(message, "AUTH_FAILED")
 
 
-class SessionNotFoundError(AppException):
-    """会话不存在"""
-
-    def __init__(self, session_id: str):
-        super().__init__(f"Session {session_id} not found", "SESSION_NOT_FOUND")
-
-
 class LLMError(AppException):
     """LLM 调用失败"""
 
     def __init__(self, message: str):
         super().__init__(message, "LLM_ERROR")
-
-
-class ToolExecutionError(AppException):
-    """工具执行失败"""
-
-    def __init__(self, tool_name: str, reason: str):
-        super().__init__(f"Tool {tool_name} failed: {reason}", "TOOL_ERROR")
 
 
 class RedisCheckpointError(AppException):

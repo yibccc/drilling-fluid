@@ -3,9 +3,7 @@ import pytest
 from src.models.exceptions import (
     AppException,
     AuthenticationError,
-    SessionNotFoundError,
     LLMError,
-    ToolExecutionError,
 )
 
 
@@ -23,19 +21,7 @@ def test_authentication_error():
     assert isinstance(exc, AppException)
 
 
-def test_session_not_found_error():
-    """测试会话不存在错误"""
-    exc = SessionNotFoundError("session_123")
-    assert isinstance(exc, AppException)
-
-
 def test_llm_error():
     """测试 LLM 错误"""
     exc = LLMError("DeepSeek API 超时")
-    assert isinstance(exc, AppException)
-
-
-def test_tool_execution_error():
-    """测试工具执行错误"""
-    exc = ToolExecutionError("search", "超时")
     assert isinstance(exc, AppException)

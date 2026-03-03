@@ -8,13 +8,11 @@ RAG 检索增强生成服务
 import logging
 from typing import List, Dict, Any, Optional
 
-from langchain_community.embeddings import DashScopeEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 from src.repositories.knowledge_repo import KnowledgeRepository
 from src.models.diagnosis_schemas import KnowledgeDocumentCreate, KnowledgeSearchRequest
 from src.models.exceptions import RAGError
 from src.config import settings
+from src.utils import create_embeddings_client, create_text_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +28,7 @@ class RAGService:
     def _init_embeddings(self):
         """初始化 Embedding 客户端 (通义千问 DashScope)"""
         try:
-            self.embeddings = DashScopeEmbeddings(
-                model=settings.embedding_model,
-                dashscope_api_key=settings.dashscope_api_key,
-            )
+            self.embeddings = create_embeddings_client()
             # 将 embeddings 注入到 repo
             self.knowledge_repo.embedding_client = self.embeddings
             logger.info(f"RAG service initialized with {settings.embedding_model}")
@@ -67,11 +62,7 @@ class RAGService:
     def _split_text(self, text: str) -> List[Dict[str, Any]]:
         """文本分块（父子分块策略）"""
         # 子分块器：用于向量检索（小块，高精度）
-        child_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=600,
-            chunk_overlap=100,
-            length_function=len,
-        )
+        child_splitter = create_text_splitter()
 
         chunks = []
         for idx, chunk in enumerate(child_splitter.split_text(text)):

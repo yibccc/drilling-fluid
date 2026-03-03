@@ -7,36 +7,36 @@ import com.kira.common.pojo.ModbusRealtimeVO;
 import com.kira.common.websocket.WebSocketServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.connection.Message;
-import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.stereotype.Component;
 
 /**
  * Modbus数据WebSocket推送处理器
+ * 从 Kafka 消费者接收数据后推送到 WebSocket 客户端
  */
 @Slf4j
 @Component
-public class ModbusDataWebSocketHandler implements MessageListener {
+public class ModbusDataWebSocketHandler {
 
    @Autowired
    private WebSocketServer webSocketServer;
 
    private final ObjectMapper objectMapper;
 
-   public static final String MODBUS_CHANNEL = "modbus:update";
-
    public ModbusDataWebSocketHandler() {
       this.objectMapper = new ObjectMapper();
       this.objectMapper.registerModule(new JavaTimeModule());
    }
 
-   @Override
-   public void onMessage(Message message, byte[] pattern) {
+   /**
+    * 推送 Modbus 数据到 WebSocket 客户端
+    * 由 Kafka 消费者服务调用
+    *
+    * @param modbusData Modbus数据对象
+    */
+   public void pushModbusData(ModbusData modbusData) {
       try {
-         String messageBody = new String(message.getBody());
-         log.info("接收到Modbus数据更新消息：{}", messageBody);
+         log.debug("推送Modbus数据到WebSocket：wellId={}", modbusData.getWellId());
 
-         ModbusData modbusData = objectMapper.readValue(messageBody, ModbusData.class);
          ModbusRealtimeVO realtimeVO = buildRealtimeVO(modbusData);
          String jsonMessage = objectMapper.writeValueAsString(realtimeVO);
 
@@ -49,7 +49,7 @@ public class ModbusDataWebSocketHandler implements MessageListener {
          }
 
       } catch (Exception e) {
-         log.error("处理Modbus数据推送消息失败", e);
+         log.error("推送Modbus数据失败", e);
       }
    }
 

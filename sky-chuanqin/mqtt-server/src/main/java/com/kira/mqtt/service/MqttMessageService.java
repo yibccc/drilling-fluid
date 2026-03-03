@@ -1,14 +1,12 @@
 package com.kira.mqtt.service;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONException;
 import com.baomidou.mybatisplus.extension.toolkit.Db;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kira.common.pojo.Density;
 import com.kira.common.pojo.DrillingData;
 import com.kira.common.pojo.ModbusData;
 import com.kira.mqtt.domain.dto.ModbusDataDTO;
-import com.kira.mqtt.mapper.DensityMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
@@ -38,10 +36,10 @@ public class MqttMessageService {
     private RedisTemplate<String, Object> redisTemplate;
 
     @Autowired
-    private DensityMapper densityMapper;
+    private ObjectMapper objectMapper;
 
     @Autowired
-    private ObjectMapper objectMapper;
+    private KafkaProducerService kafkaProducerService;
 
     /**
      * 处理MQTT消息
@@ -73,12 +71,12 @@ public class MqttMessageService {
     private void processTestTopicMessage(String topic, String payload) {
         ModbusDataDTO modbusData;
         try {
-            modbusData = JSON.parseObject(payload, ModbusDataDTO.class);
+            modbusData = objectMapper.readValue(payload, ModbusDataDTO.class);
             if (modbusData == null) {
                 log.error("解析MQTT消息失败，无法转换为ModbusDataDTO: {}", payload);
                 return;
             }
-        } catch (JSONException e) {
+        } catch (JsonProcessingException e) {
             log.error("解析MQTT消息JSON失败: {}", payload, e);
             return;
         }
@@ -110,7 +108,7 @@ public class MqttMessageService {
             websocketData.setIsOil(isOil);
             websocketData.setDrillingFluidDensity(modbusData.getDrillingFluidFensity());
             String json = objectMapper.writeValueAsString(websocketData);
-            redisTemplate.convertAndSend("modbus:update", json);
+            sendMessage("modbus:update", json);
         } catch (Exception e) {
             log.error("处理ModbusData数据失败", e);
         }
@@ -142,7 +140,7 @@ public class MqttMessageService {
     /**
      * 保存密度数据
      */
-    private void saveDensityData(ModbusDataDTO modbusData, String wellId, String location, 
+    private void saveDensityData(ModbusDataDTO modbusData, String wellId, String location,
                                 Integer isOil, LocalDateTime now) {
         try {
             Density density = new Density();
@@ -152,7 +150,7 @@ public class MqttMessageService {
             density.setSamplingLocation(location);
             density.setWellId(wellId);
             density.setIsOil(isOil);
-            densityMapper.insert(density);
+            Db.save(density);
 
             log.debug("密度数据保存成功");
         } catch (Exception e) {
@@ -264,5 +262,17 @@ public class MqttMessageService {
         } catch (Exception e) {
             log.error("保存Modbus数据失败", e);
         }
+    }
+
+    /**
+     * 发送消息到 Kafka
+     *
+     * @param channel Redis通道名称（将转换为Kafka topic）
+     * @param message 消息内容
+     */
+    private void sendMessage(String channel, String message) {
+        // 将 Redis 通道名转换为 Kafka topic
+        String topic = channel.replace(":", ".");
+        kafkaProducerService.sendMessage(topic, null, message);
     }
 } 

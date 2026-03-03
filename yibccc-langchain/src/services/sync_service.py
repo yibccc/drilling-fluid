@@ -13,6 +13,7 @@ import redis.asyncio as aioredis
 from src.config import settings
 from src.models.exceptions import AppException
 from src.models.schemas import ChatMessage, ToolCall
+from src.utils import ensure_consumer_group, decode_redis_data
 
 
 class SyncService:
@@ -56,7 +57,11 @@ class SyncService:
         self._redis_client = aioredis.from_url(settings.redis_url)
 
         # 确保存在 Consumer Group
-        await self._ensure_consumer_group(self._redis_client)
+        await ensure_consumer_group(
+            self._redis_client,
+            settings.redis_stream_name,
+            settings.redis_consumer_group
+        )
 
         logging.info(f"SyncService started: consumer={self._consumer_name}")
 
@@ -77,38 +82,6 @@ class SyncService:
         if self._redis_client:
             await self._redis_client.aclose()
         logging.info("SyncService stopped")
-
-    async def _ensure_consumer_group(self, redis_client: aioredis.Redis):
-        """确保 Consumer Group 存在"""
-        try:
-            # 尝试创建消费者组，如果 Stream 不存在则自动创建
-            await redis_client.xgroup_create(
-                settings.redis_stream_name,
-                settings.redis_consumer_group,
-                id="0",
-                mkstream=True
-            )
-            logging.info(f"Created consumer group '{settings.redis_consumer_group}' for stream '{settings.redis_stream_name}'")
-        except Exception as e:
-            # 检查是否是 "BUSYGROUP" 错误（组已存在）
-            error_str = str(e)
-            if "BUSYGROUP" in error_str or "already exists" in error_str.lower():
-                logging.info(f"Consumer group '{settings.redis_consumer_group}' already exists")
-            else:
-                logging.warning(f"Failed to create consumer group: {e}")
-                # 如果 Stream 不存在，尝试先创建 Stream
-                try:
-                    # 添加一个临时消息来创建 Stream
-                    await redis_client.xadd(settings.redis_stream_name, {"init": "true"})
-                    # 然后创建消费者组
-                    await redis_client.xgroup_create(
-                        settings.redis_stream_name,
-                        settings.redis_consumer_group,
-                        id="0"
-                    )
-                    logging.info(f"Created stream and consumer group '{settings.redis_consumer_group}'")
-                except Exception as e2:
-                    logging.error(f"Failed to create stream and consumer group: {e2}")
 
     async def _worker(self, redis_client: aioredis.Redis, worker_id: int):
         """Worker 线程"""
@@ -148,7 +121,7 @@ class SyncService:
     async def _process_sync_message(self, data: dict):
         """处理同步消息 - 从 checkpoint 读取并写入 PostgreSQL"""
         try:
-            decoded = await self._decode_data(data)
+            decoded = await decode_redis_data(data)
 
             thread_id = decoded.get("thread_id")
             session_id = decoded.get("session_id")
@@ -240,17 +213,6 @@ class SyncService:
 
         except Exception as e:
             logging.error(f"Process sync message failed: {e}")
-
-    async def _decode_data(self, data: dict) -> dict:
-        """解码 bytes 数据"""
-        decoded = {}
-        for key, value in data.items():
-            if isinstance(key, bytes):
-                key = key.decode('utf-8')
-            if isinstance(value, bytes):
-                value = value.decode('utf-8')
-            decoded[key] = value
-        return decoded
 
 
 # 全局实例

@@ -1,13 +1,10 @@
 package com.kira.common.config;
 
-import com.kira.common.handler.ModbusDataWebSocketHandler;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.listener.PatternTopic;
-import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 @Configuration
@@ -29,31 +26,5 @@ public class RedisConfiguration {
         //设置hash value的序列化器
         redisTemplate.setHashValueSerializer(new StringRedisSerializer());
         return redisTemplate;
-    }
-
-
-
-    /**
-     * 配置Redis消息监听容器
-     */
-    @Bean
-    public RedisMessageListenerContainer redisMessageListenerContainer(
-            RedisConnectionFactory connectionFactory,
-            ModbusDataWebSocketHandler modbusDataHandler) {
-
-        log.info("配置Redis消息监听容器...");
-
-        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
-        container.setConnectionFactory(connectionFactory);
-
-        // 订阅Modbus数据更新频道
-        container.addMessageListener(
-                modbusDataHandler,
-                new PatternTopic(ModbusDataWebSocketHandler.MODBUS_CHANNEL)
-        );
-
-        log.info("已订阅Redis频道：{}", ModbusDataWebSocketHandler.MODBUS_CHANNEL);
-
-        return container;
     }
 }

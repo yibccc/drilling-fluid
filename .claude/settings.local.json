@@ -28,7 +28,21 @@
       "Bash(uv run:*)",
       "Bash(tail:*)",
       "mcp__context7__query-docs",
-      "mcp__auggie-mcp__codebase-retrieval"
+      "mcp__auggie-mcp__codebase-retrieval",
+      "Bash(cd:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(cd /Users/kirayang/IdeaProjects/drilling-fluid/yibccc-langchain && python -c \"from src.utils import create_embeddings_client, create_text_splitter, ensure_consumer_group, decode_redis_data; print\\('Utils import OK'\\)\" 2>&1)",
+      "Bash(cd /Users/kirayang/IdeaProjects/drilling-fluid/yibccc-langchain && python -c \"from src.services.rag_service import RAGService; print\\('RAGService import OK'\\)\" 2>&1)",
+      "Bash(cd /Users/kirayang/IdeaProjects/drilling-fluid/yibccc-langchain && python -c \"from src.services.sync_service import sync_service; print\\('SyncService import OK'\\)\" 2>&1)",
+      "Bash(python3:*)",
+      "mcp__context7__resolve-library-id",
+      "Bash(git checkout:*)",
+      "Bash(mvn dependency:resolve:*)",
+      "Bash(mvn clean:*)",
+      "Bash(head:*)",
+      "Bash(pwd:*)"
     ]
   }
 }

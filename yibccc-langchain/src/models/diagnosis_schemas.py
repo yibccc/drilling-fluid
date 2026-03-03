@@ -129,11 +129,6 @@ class DiagnosisResult(BaseModel):
 
 # ========== SSE 事件模型 ==========
 
-class DiagnosisEventType(BaseModel):
-    """诊断事件类型"""
-    pass
-
-
 class DiagnosisEvent(BaseModel):
     """诊断 SSE 事件"""
     type: Literal[

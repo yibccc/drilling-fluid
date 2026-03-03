@@ -2,9 +2,7 @@ package com.kira.server.controller;
 
 
 import com.kira.common.pojo.DrillingData;
-import com.kira.common.pojo.ModbusData;
 import com.kira.common.result.Result;
-import com.kira.common.sevice.IModbusNotifyService;
 import com.kira.server.domain.dto.DrillingOperatingConditions;
 import com.kira.server.domain.dto.HandwrittenConditionsDTO;
 import com.kira.server.domain.dto.ManualQuery;
@@ -44,9 +42,6 @@ public class DrillingDataController {
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
-
-    @Autowired
-    private IModbusNotifyService modbusNotifyService;
 
     @ApiOperation("查询最新的一组数据")
     @GetMapping("/every5min/{id}")
@@ -132,36 +127,5 @@ public class DrillingDataController {
         BeanUtils.copyProperties(vo, drillingData);
         drillingDataService.updateById(drillingData);
         return Result.success();
-    }
-
-    @PostMapping("/notify")
-    @ApiOperation(value = "通知Modbus数据更新", notes = "MQTT采集程序调用此接口触发WebSocket实时推送")
-    public Result<Void> notifyModbusUpdate(@RequestBody ModbusData modbusData) {
-        log.info("接收到Modbus数据更新通知：wellId={}, samplingTime={}",
-                modbusData.getWellId(), modbusData.getSamplingTime());
-
-        try {
-            modbusNotifyService.notifyModbusUpdate(modbusData);
-            log.info("Modbus数据已推送到WebSocket客户端");
-            return Result.success();
-        } catch (Exception e) {
-            log.error("Modbus数据推送失败", e);
-            return Result.error("推送失败：" + e.getMessage());
-        }
-    }
-
-    @PostMapping("/notify/batch")
-    @ApiOperation(value = "批量通知Modbus数据更新", notes = "MQTT采集程序批量推送数据时使用")
-    public Result<Void> notifyBatchModbusUpdate(@RequestBody List<ModbusData> modbusDataList) {
-        log.info("接收到批量Modbus数据更新通知，数量：{}", modbusDataList.size());
-
-        try {
-            modbusNotifyService.notifyBatchModbusUpdate(modbusDataList);
-            log.info("批量Modbus数据已推送到WebSocket客户端");
-            return Result.success();
-        } catch (Exception e) {
-            log.error("批量Modbus数据推送失败", e);
-            return Result.error("批量推送失败：" + e.getMessage());
-        }
     }
 }

@@ -1,0 +1,47 @@
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9094}
+
+    # ========== 生产者配置 ==========
+    producer:
+      acks: all
+      retries: 5
+      batch-size: 16384
+      buffer-memory: 33554432
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # Kafka 原生配置（通过 properties 传递）
+      properties:
+        enable.idempotence: true
+        linger.ms: 10
+        delivery.timeout.ms: 30000
+        acks.timeout.ms: 5000
+
+    # ========== 消费者配置 ==========
+    consumer:
+      # 消费者组 ID
+      group-id: sky-server
+      # 关闭自动提交，手动控制 offset
+      enable-auto-commit: false
+      # 首次消费从最早的消息开始
+      auto-offset-reset: earliest
+      # 序列化器
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      # 自定义属性
+      properties:
+        # 信任的反序列化包
+        spring.json.trusted.packages: com.kira.server.domain.*,com.kira.common.pojo.*
+        # 单次 poll 最大记录数
+        max.poll.records: 500
+        # poll 间隔超时（避免 rebalance）
+        max.poll.interval.ms: 300000
+
+    # ========== 监听器配置 ==========
+    listener:
+      # 手动确认模式
+      ack-mode: manual
+      # 消费者线程数
+      concurrency: 2
+      # 错误处理器
+      type: batch

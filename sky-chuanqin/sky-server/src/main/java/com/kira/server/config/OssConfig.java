@@ -3,6 +3,7 @@ package com.kira.server.config;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -13,6 +14,7 @@ import org.springframework.context.annotation.Configuration;
  * @create 2026-02-27
  */
 @Configuration
+@EnableConfigurationProperties(OssProperties.class)
 @RequiredArgsConstructor
 public class OssConfig {
 

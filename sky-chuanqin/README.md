@@ -13,27 +13,50 @@ Sky-Chuanqin是一个专为石油和天然气行业上游勘探与开采(E&P)领
 ### 模块划分
 
 - **sky-common**: 公共组件模块，包含共享的DTO/VO实体类、结果封装类、工具类、异常处理、WebSocket配置、Redis配置、跨模块共享的服务接口等
-- **sky-server**: 核心业务服务模块，提供REST API、业务逻辑、数据访问、任务调度、安全认证等功能
-- **mqtt-server**: MQTT消息处理模块，负责MQTT消息的订阅、接收与数据处理桥接
+- **sky-server**: 核心业务服务模块，提供REST API、业务逻辑、数据访问、任务调度、安全认证、Kafka消费等功能
+- **mqtt-server**: MQTT消息处理模块，负责MQTT消息的订阅、接收、数据处理与Kafka生产桥接
 
 ### 架构分层
 
-- **表示层 (Controller)**: 作为系统的HTTP API入口，负责接收来自前端应用或硬件设备的请求。包括DrillingDataController、FullPerformanceController、AlertsController、EmployeeController等
-- **业务逻辑层 (Service)**: 实现所有核心业务逻辑，负责编排和组合多个数据访问层的操作，处理复杂的业务规则。包括钻井数据处理、全性能分析、预警管理、员工管理等
+- **表示层 (Controller)**: 作为系统的HTTP API入口，负责接收来自前端应用或硬件设备的请求。包括DrillingDataController、FullPerformanceController、AlertsController、EmployeeController、WellController等
+- **业务逻辑层 (Service)**: 实现所有核心业务逻辑，负责编排和组合多个数据访问层的操作，处理复杂的业务规则。包括钻井数据处理、全性能分析、预警管理、员工管理、井配置管理等
 - **数据访问层 (Mapper/DAO)**: 负责与MySQL数据库进行持久化交互，使用MyBatis Plus作为ORM框架
 - **实体/模型层 (Entity/DTO/VO)**: 包含系统中流转的各类Java对象，包括DrillingData、Density、ModbusData等实体类
+- **消息队列层 (Kafka)**: 使用Kafka实现解耦的消息传递，mqtt-server作为生产者，sky-server作为消费者
+- **实时通信层 (WebSocket)**: 支持按井分组的WebSocket推送，实现实时数据推送
 - **任务调度层 (Task)**: 利用XXL-Job分布式任务调度框架和Spring内置的@Scheduled注解，执行各类定时或周期性任务
 - **安全与认证 (Security)**: 基于Spring Security和JWT实现用户认证与授权
 - **切面编程 (Aspect)**: 自定义注解@OperationLog和@AutoFill，实现操作日志记录和字段自动填充
 
+## 消息流转架构
+
+```
+[MQTT Broker] --> [mqtt-server] --> [Kafka] --> [sky-server] --> [WebSocket] --> [前端客户端]
+                        |
+                        v
+                   [MySQL]
+```
+
+1. **MQTT Broker**: 接收来自硬件设备的原始数据
+2. **mqtt-server**: 订阅MQTT主题，解析数据，存储到数据库，并发送到Kafka
+3. **Kafka**: 作为消息缓冲层，解耦生产者和消费者
+4. **sky-server**: 消费Kafka消息，处理业务逻辑，推送到WebSocket
+5. **WebSocket**: 实时推送数据到前端客户端
+
 ## 核心功能
 
 ### 钻井数据管理
-- 实时数据采集与存储（通过MQTT订阅和Modbus通信）
+- 实时数据采集与存储（通过MQTT订阅）
 - 历史数据查询与分析
 - 多维度数据筛选与可视化
 - 钻井工程参数管理（EgineeringParameters）
 - 井位信息管理（Well、Location）
+
+### 井配置管理
+- 井信息CRUD操作（WellController）
+- 活跃井列表管理（WellConfigService）
+- 基于Redis的井状态管理
+- 支持动态添加/移除监控井
 
 ### 钻井液参数分析
 - 全性能参数实时监控（FullPerformance）
@@ -50,7 +73,7 @@ Sky-Chuanqin是一个专为石油和天然气行业上游勘探与开采(E&P)领
 - 操作日志记录（OperationLog，基于AOP自动记录）
 
 ### 实时通信
-- WebSocket实时消息推送
+- WebSocket分组推送（按井ID分组）
 - Modbus数据实时推送（ModbusDataWebSocketHandler）
 - 预警信息即时通知
 - 系统状态心跳监测
@@ -66,11 +89,12 @@ Sky-Chuanqin是一个专为石油和天然气行业上游勘探与开采(E&P)领
 - **数据库**: MySQL 8.0
 - **数据访问**: MyBatis Plus 3.5.3.1, Druid 1.2.1 (数据库连接池)
 - **缓存**: Redis (用于缓存热点数据、存储临时状态和分布式锁)
+- **消息队列**: Apache Kafka (消息解耦与异步处理)
 - **实时通信**: Spring WebSocket, MQTT客户端
 - **任务调度**: XXL-Job 2.3.0 (用于分布式定时任务调度)
 - **安全认证**: Spring Security + JWT
 - **API文档**: Knife4j 3.0.2 (基于OpenAPI/Swagger的自动化API文档生成工具)
-- **工具库**: Hutool 5.8.26, Lombok 1.18.20
+- **工具库**: Hutool 5.8.26, Lombok 1.18.30
 - **开发语言**: Java 11
 
 ## 项目结构
@@ -84,45 +108,38 @@ sky-chuanqin/
 │       ├── context/               # 上下文（BaseContext）
 │       ├── enumeration/           # 枚举类
 │       ├── exception/             # 自定义异常
-│       ├── handler/               # 处理器（WebSocketHandler）
+│       ├── handler/               # 处理器（ModbusDataWebSocketHandler）
 │       ├── pojo/                  # 实体类（DrillingData、Density、ModbusData等）
 │       ├── result/                # 结果封装（Result、PageResult）
-│       ├── service/               # 共享服务接口
 │       └── websocket/             # WebSocket服务端
 ├── sky-server/                    # 核心业务服务模块
 │   └── src/main/java/com/kira/server/
 │       ├── annotation/            # 自定义注解（@AutoFill、@OperationLog）
 │       ├── aspect/                # AOP切面
-│       ├── config/                # 配置类（Jwt、Security、ThreadPool、XxlJob、Knife4j）
-│       ├── controller/            # 控制器层
+│       ├── config/                # 配置类（Jwt、Security、ThreadPool、XxlJob、Knife4j、Kafka）
+│       ├── controller/            # 控制器层（包含WellController）
 │       ├── domain/                # 领域模型
 │       ├── handler/               # 处理器
 │       ├── interceptor/           # 拦截器
 │       ├── mapper/                # 数据访问层
 │       ├── properties/            # 配置属性类
 │       ├── security/              # 安全相关
-│       ├── service/               # 业务逻辑层
-│       ├── task/                  # 定时任务
+│       ├── service/               # 业务逻辑层（包含KafkaConsumerService、WellConfigService）
 │       └── SkyApplication.java    # 启动类
 ├── mqtt-server/                   # MQTT消息处理模块
 │   └── src/main/java/com/kira/mqtt/
 │       ├── config/                # MQTT配置
 │       ├── domain/dto/            # 数据传输对象
-│       ├── mapper/                # 数据访问层
 │       ├── mqtt/                  # MQTT客户端实现
-│       ├── service/               # 消息处理服务
-│       └── MqttApplication.java   # 启动类
-└── docs/interview/                # 项目文档
-    ├── AGENTS.md
-    ├── KAFKA_MIGRATION_PLAN.md
-    └── OPERATION_LOG_IMPLEMENTATION_SUMMARY.md
+│       └── service/               # 消息处理服务（包含KafkaProducerService）
+└── docs/plans/                    # 项目文档
+    └── 2026-03-02-xxl-job-websocket-optimization.md
 ```
 
 ## 代码统计
 
-- **Java源文件总数**: 153个文件
-- **Java代码总行数**: 约11,797行
-- **平均每个文件行数**: 约77行
+- **Java源文件总数**: 190个文件
+- **核心模块**: sky-common、sky-server、mqtt-server
 
 ## 服务端口
 
@@ -134,14 +151,8 @@ sky-chuanqin/
 - JDK 11+
 - MySQL 8.0+
 - Redis 6.0+
-- Maven 3.6+
+- Kafka 2.8+ (用于消息队列)
 - MQTT Broker (如EMQX、Mosquitto)
-
-## 环境要求
-
-- JDK 11+
-- MySQL 8.0+
-- Redis 6.0+
 - Maven 3.6+
 
 ## 快速开始
@@ -155,7 +166,7 @@ cd sky-chuanqin
 
 ### 2. 配置数据库
 
-在`sky-server/src/main/resources/application-dev.yml`文件中配置数据库连接信息（通过环境变量或直接配置）：
+在`sky-server/src/main/resources/application-dev.yml`文件中配置数据库连接信息：
 
 ```yaml
 sky:
@@ -179,7 +190,17 @@ sky:
     database: 0
 ```
 
-### 4. 配置MQTT
+### 4. 配置Kafka
+
+在`sky-server/src/main/resources/application-kafka.yml`和`mqtt-server/src/main/resources/application-kafka.yml`中配置：
+
+```yaml
+spring:
+  kafka:
+    bootstrap-servers: localhost:9094
+```
+
+### 5. 配置MQTT
 
 在`mqtt-server/src/main/resources/application-dev.yml`中配置MQTT连接信息：
 
@@ -191,7 +212,7 @@ mqtt:
   topic: sky/test1/#
 ```
 
-### 5. 编译与运行
+### 6. 编译与运行
 
 ```bash
 # 构建所有模块
@@ -214,7 +235,7 @@ mvn spring-boot:run -pl sky-server
 mvn spring-boot:run -pl mqtt-server
 ```
 
-### 6. 运行测试
+### 7. 运行测试
 
 ```bash
 # 运行所有模块测试
@@ -232,6 +253,37 @@ mvn test -pl mqtt-server
 - **主服务API文档**: http://localhost:18080/doc.html
 - **MQTT服务API文档**: http://localhost:18081/doc.html
 
+## 主要接口
+
+### 井管理接口 (WellController)
+
+```
+GET    /well/list              # 获取所有井
+GET    /well/location/{id}     # 根据区域ID获取井
+GET    /well/{id}              # 根据ID获取井
+POST   /well                   # 添加新井
+PUT    /well                   # 更新井
+DELETE /well/{id}              # 删除井
+POST   /well/add               # 添加井到监控列表
+DELETE /well/remove            # 从监控列表移除井
+GET    /well/active            # 获取所有活跃井
+GET    /well/check             # 检查井是否活跃
+```
+
+### 其他核心接口
+
+```
+GET    /drillingData/list      # 获取钻井数据列表
+GET    /alerts/list            # 获取预警列表
+GET    /fullPerformance/list   # 获取全性能数据
+POST   /employee/login         # 员工登录
+```
+
+## Kafka主题
+
+- **mqtt.raw**: 原始MQTT数据主题
+- **mqtt.raw-dlt**: 死信队列主题（处理失败消息）
+
 ## 开发规范
 
 ### 编码风格
@@ -241,15 +293,19 @@ mvn test -pl mqtt-server
 - 接口命名以`I`开头，实现类以`ServiceImpl`结尾
 - REST路径使用小写kebab-case（如`/alerts`、`/location`）
 
+### 消息处理规范
+- MQTT消息由mqtt-server接收并解析
+- 处理后的数据发送到Kafka的mqtt.raw主题
+- sky-server消费Kafka消息并推送到WebSocket
+- 处理失败的消息进入死信队列
+
 ### 提交规范
 - Git提交信息使用简洁的现在时态摘要
 - 每次提交保持一个聚焦的变更
 - 避免提交敏感信息，使用环境变量或profile-specific配置
 
 ### 文档说明
-- 项目详细说明见 `docs/interview/AGENTS.md`
-- Kafka迁移计划见 `docs/interview/KAFKA_MIGRATION_PLAN.md`
-- 操作日志实现总结见 `docs/interview/OPERATION_LOG_IMPLEMENTATION_SUMMARY.md`
+- 项目优化设计见 `docs/plans/2026-03-02-xxl-job-websocket-optimization.md`
 
 ## 许可证
 
@@ -260,4 +316,4 @@ mvn test -pl mqtt-server
 如有问题或建议，请通过以下方式联系：
 - 提交Issue
 - 发送Pull Request
-- 项目文档: 见 `docs/interview/` 目录
+- 项目文档: 见 `docs/plans/` 目录

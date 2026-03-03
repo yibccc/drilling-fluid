@@ -26,8 +26,6 @@ class Settings(BaseSettings):
 
     # Redis 配置
     redis_url: str = Field(default="redis://localhost:6379", alias="REDIS_URL")
-    redis_db: int = Field(default=0, alias="REDIS_DB")
-    redis_max_connections: int = Field(default=20, alias="REDIS_MAX_CONNECTIONS")
 
     # PostgreSQL 配置
     pg_dsn: str = Field(default="", alias="PG_DSN")
@@ -43,7 +41,7 @@ class Settings(BaseSettings):
     # 应用配置
     app_name: str = "yibccc-langchain"
     app_version: str = "0.1.0"
-    debug: bool = False
+    debug: bool = Field(default=False, alias="DEBUG")
 
     # Redis Stream 同步配置
     redis_stream_sync_enabled: bool = Field(default=True, alias="REDIS_STREAM_SYNC_ENABLED")
@@ -90,12 +88,4 @@ def get_llm_config() -> dict:
         "model": settings.deepseek_model,
         "api_key": settings.deepseek_api_key,
         "base_url": settings.deepseek_base_url,
-    }
-
-
-def get_embedding_config() -> dict:
-    """获取 Embedding 模型配置 (通义千问 DashScope)"""
-    return {
-        "model": settings.embedding_model,
-        "api_key": settings.dashscope_api_key,
     }

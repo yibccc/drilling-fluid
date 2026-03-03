@@ -1,7 +1,6 @@
 package com.kira.server.aspect;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.serializer.SerializerFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kira.common.context.BaseContext;
 import com.kira.server.annotation.OperationLog;
 import com.kira.server.service.IOperationLogService;
@@ -31,9 +30,11 @@ import java.util.List;
 @Component
 @Slf4j
 public class OperationLogAspect {
-    
+
     @Autowired
     private IOperationLogService operationLogService;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
     
     @Autowired
     private HttpServletRequest request;
@@ -83,7 +84,7 @@ public class OperationLogAspect {
             try {
                 Object[] args = joinPoint.getArgs();
                 List<Object> filteredArgs = filterSensitiveData(args);
-                String params = JSON.toJSONString(filteredArgs, SerializerFeature.IgnoreErrorGetter);
+                String params = objectMapper.writeValueAsString(filteredArgs);
                 // 限制参数长度，避免过大
                 if (params.length() > 5000) {
                     params = params.substring(0, 5000) + "... (truncated)";
@@ -103,7 +104,7 @@ public class OperationLogAspect {
             // 5. 保存响应数据
             if (operationLog.saveResponseData() && result != null) {
                 try {
-                    String responseData = JSON.toJSONString(result, SerializerFeature.IgnoreErrorGetter);
+                    String responseData = objectMapper.writeValueAsString(result);
                     // 限制响应数据长度
                     if (responseData.length() > 5000) {
                         responseData = responseData.substring(0, 5000) + "... (truncated)";
@@ -176,25 +177,25 @@ public class OperationLogAspect {
         if (obj == null) {
             return null;
         }
-        
+
         try {
             // 转换为JSON字符串
-            String jsonStr = JSON.toJSONString(obj);
-            
+            String jsonStr = objectMapper.writeValueAsString(obj);
+
             // 使用正则表达式屏蔽敏感字段
             for (String field : SENSITIVE_FIELDS) {
                 // 匹配 "fieldName":"value" 或 "fieldName":value 格式
                 jsonStr = jsonStr.replaceAll(
-                    "\"" + field + "\"\\s*:\\s*\"[^\"]*\"", 
+                    "\"" + field + "\"\\s*:\\s*\"[^\"]*\"",
                     "\"" + field + "\":\"******\""
                 );
                 jsonStr = jsonStr.replaceAll(
-                    "\"" + field + "\"\\s*:\\s*[^,}\\]]+", 
+                    "\"" + field + "\"\\s*:\\s*[^,}\\]]+",
                     "\"" + field + "\":\"******\""
                 );
             }
-            
-            return JSON.parse(jsonStr);
+
+            return objectMapper.readValue(jsonStr, Object.class);
         } catch (Exception e) {
             log.warn("屏蔽敏感字段失败: {}", e.getMessage());
             return obj;
