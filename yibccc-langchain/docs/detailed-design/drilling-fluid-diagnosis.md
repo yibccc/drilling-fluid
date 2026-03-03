@@ -11,10 +11,11 @@
 | 数据模型 | ✅ 完成 | diagnosis_schemas.py |
 | API 路由 | ✅ 完成 | /api/v1/diagnosis/* |
 | 诊断服务 | ✅ 完成 | DiagnosisService + SSE 流式 |
-| RAG 服务 | ✅ 完成 | 600字符分块 + HNSW 索引 |
+| 向量存储服务 | ✅ 完成 | VectorStoreService + LangChain PGVector |
+| 检索中间件 | ✅ 完成 | RetrievalMiddleware (自动注入上下文) |
 | 回调服务 | ✅ 完成 | 指数退避重试机制 |
-| Agent | ✅ 完成 | LangChain create_agent + ToolStrategy |
-| 诊断工具 | ✅ 完成 | analyze_trend, search_knowledge, format_prescription |
+| Agent | ✅ 完成 | LangChain create_agent + ToolStrategy + Middleware |
+| 诊断工具 | ✅ 完成 | analyze_trend, format_prescription (移除 search_knowledge) |
 | 结构化输出 | ✅ 完成 | ToolStrategy + Pydantic Literal 约束 |
 | 数据库 | ✅ 完成 | diagnosis_schema.sql |
 | 单元测试 | ✅ 完成 | 60+ 测试用例 |
@@ -102,9 +103,11 @@
 | 组件 | 技术选型 | 版本 | 用途 |
 |------|---------|------|------|
 | LLM 编排 | LangChain | >=1.0.0 | Agent 框架 |
+| Agent 中间件 | AgentMiddleware | 1.0.0+ | 自动注入检索上下文 |
+| 向量存储 | langchain-postgres | 0.2.0+ | PGVector 集成 |
 | LLM 模型 | DeepSeek | deepseek-chat | 诊断分析 |
 | Embedding | 通义千问 DashScope | text-embedding-v3 | 向量化 |
-| 向量数据库 | PostgreSQL + pgvector | 0.2.0+ | HNSW 索引 |
+| 向量数据库 | PostgreSQL + pgvector | 0.7.0+ | HNSW 索引 |
 | 消息流 | LangGraph | >=0.2.0 | Agent 状态管理 |
 | Web 框架 | FastAPI | >=0.115.0 | API 服务 |
 | 异步运行时 | asyncio + uvloop | - | 异步处理 |
@@ -414,56 +417,128 @@ async def analyze(
     yield DiagnosisEvent(status="SUCCESS")
 ```
 
-### 4.2 RAGService（检索增强服务）
+### 4.2 VectorStoreService（向量存储服务）
 
-**职责：** 知识库管理和语义检索
+**职责：** 基于 LangChain PGVector 的向量存储服务
 
-**文本分块策略：**
-```python
-child_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=600,           # 每块最大字符数
-    chunk_overlap=100,        # 块间重叠
-    length_function=len,      # 长度计算函数
-)
+**架构说明：**
+```
+DiagnosisService → DiagnosisAgent → RetrievalMiddleware → VectorStoreService → PGVector
 ```
 
-**向量检索流程：**
-```
-1. 接收查询文本
-2. 使用 DashScopeEmbeddings 生成查询向量
-3. PostgreSQL pgvector 执行余弦相似度搜索
-4. 返回 Top-K 相关文档
-```
+**核心特性：**
+- 使用 LangChain 1.0 `langchain-postgres` 集成
+- 支持异步操作 (`aadd_documents`, `asimilarity_search`, `adelete`)
+- 自动处理表结构和索引
+- 集成通义千问 DashScope Embeddings
 
 **核心方法：**
-
 ```python
-async def search(
-    self,
-    query: str,
-    top_k: int = 5,
-    category: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    """语义检索"""
-    # 1. 生成查询向量
-    query_embedding = await self._embed_text(query)
+class VectorStoreService:
+    def __init__(self, connection_string: str):
+        self.embeddings = DashScopeEmbeddings(
+            model=settings.embedding_model,
+            dashscope_api_key=settings.dashscope_api_key,
+        )
+        self.vector_store = PGVector(
+            embeddings=self.embeddings,
+            collection_name="knowledge_docs",
+            connection=connection_string,
+            use_jsonb=True,
+        )
 
-    # 2. 向量搜索（SQL）
-    rows = await conn.fetch("""
-        SELECT DISTINCT ON (kd.doc_id)
-            kd.doc_id, kd.title, kd.content,
-            MIN(kc.embedding <-> $1) as distance
-        FROM knowledge_documents kd
-        JOIN knowledge_chunks kc ON kd.doc_id = kc.parent_doc_id
-        WHERE kd.category = $2  -- 可选
-        GROUP BY kd.doc_id, kd.title, kd.content
-        ORDER BY distance
-        LIMIT $3
-    """, query_embedding, category, top_k)
+    async def add_documents(self, docs: List[Document]) -> List[str]:
+        """添加文档到向量库"""
+        return await self.vector_store.aadd_documents(docs)
 
-    # 3. 格式化结果
-    return [dict(row) for row in rows]
+    async def similarity_search(
+        self, query: str, k: int = 5, filter: Optional[dict] = None
+    ) -> List[Document]:
+        """语义检索"""
+        return await self.vector_store.asimilarity_search(query, k=k, filter=filter)
 ```
+
+### 4.3 RetrievalMiddleware（检索中间件）
+
+**职责：** 在模型调用前自动注入检索上下文
+
+**架构模式：** Two-step RAG Chain
+1. 第一步：中间件检索相关知识
+2. 第二步：LLM 基于注入的上下文生成诊断结果
+
+**核心方法：**
+```python
+class RetrievalMiddleware(AgentMiddleware):
+    async def abefore_model(self, state: dict, runtime) -> dict | None:
+        """在模型调用前执行：检索并注入上下文"""
+        # 1. 提取查询
+        user_query = self._extract_query(state)
+
+        # 2. 执行检索（带重试）
+        retrieved_docs = await self._safe_search(user_query)
+
+        # 3. 格式化并注入上下文
+        context = self._format_context(retrieved_docs)
+        system_message = f"""你是一位钻井液性能诊断专家。
+
+请基于以下知识库内容回答用户的问题：
+
+【知识库内容】
+{context}
+
+请根据上述专业知识，提供准确的诊断和处置建议。"""
+
+        return {
+            "messages": [SystemMessage(content=system_message), *state["messages"]]
+        }
+```
+
+**降级策略：**
+- 检索结果为空：使用降级系统提示，要求 LLM 基于通用知识分析
+- 检索失败：标记 `_retrieval_error`，服务层过滤相关事件
+- 重试机制：最多 2 次重试，间隔递增
+
+### 4.4 DiagnosisAgent（诊断 Agent）
+
+**职责：** 基于 LangChain `create_agent` 构建智能诊断分析 Agent
+
+**架构变更：**
+```python
+class DiagnosisAgent:
+    def __init__(self, checkpointer=None, vector_store_service=None):
+        self.vector_store_service = vector_store_service
+        self.retrieval_middleware = None  # 检索中间件
+
+    def _build_agent(self):
+        # 创建检索中间件
+        self.retrieval_middleware = RetrievalMiddleware(self.vector_store_service)
+
+        # 简化系统提示词（上下文由中间件注入）
+        system_prompt = """你是一位钻井液性能诊断专家。
+
+你的职责是：
+1. 分析钻井液采样数据，识别异常趋势
+2. 基于知识库内容诊断问题原因
+3. 提供具体的处置措施和配药方案
+4. 评估风险等级并提供趋势预测"""
+
+        # 不包含 search_knowledge 工具，只有分析工具
+        tools = [analyze_trend, format_prescription]
+
+        self.agent = create_agent(
+            model=self.model,
+            tools=tools,
+            system_prompt=system_prompt,
+            checkpointer=self.checkpointer,
+            response_format=self.response_format,
+            # 注意：中间件在 LangChain 中通过不同方式集成
+        )
+```
+
+**工具列表：**
+- ~~`search_knowledge`~~ - 已移除（由中间件替代）
+- `analyze_trend` - 分析参数趋势
+- `format_prescription` - 生成配药方案
 
 ### 4.3 CallbackService（回调服务）
 
@@ -488,7 +563,7 @@ for attempt in range(1, retry_max + 1):
 - `SPRINGBOOT_CALLBACK_TIMEOUT=30` - 请求超时（秒）
 - `SPRINGBOOT_CALLBACK_RETRY_MAX=3` - 最大重试次数
 
-### 4.4 诊断工具集（LangChain Tools）
+### 4.5 诊断工具集（LangChain Tools）
 
 #### analyze_trend
 
@@ -520,20 +595,6 @@ def analyze_trend(
 - 变化量: +0.150
 - 变化率: 12.5%
 - 时间跨度: 120分钟
-```
-
-#### search_knowledge
-
-**功能：** 检索专家知识库
-
-```python
-@tool
-def search_knowledge(
-    query: str,
-    category: str = "density",
-    top_k: int = 5
-) -> str:
-    """调用 RAGService 进行语义检索"""
 ```
 
 #### format_prescription
