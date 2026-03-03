@@ -1,7 +1,7 @@
 package com.kira.mqtt.mqtt;
 
 import org.eclipse.paho.client.mqttv3.*;
-import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
+import org.eclipse.paho.client.mqttv3.persist.MqttDefaultFilePersistence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,17 +36,19 @@ public class MyMqttClient {
 
     public void connect() throws MqttException {
         if (client == null) {
-            client = new MqttClient(host, clientId, new MemoryPersistence());
+            // 使用磁盘持久化，断线重连后可恢复未确认的消息
+            String persistenceDir = "/Users/kirayang/mqtt/data";
+            client = new MqttClient(host, clientId, new MqttDefaultFilePersistence(persistenceDir));
         }
-        
+
         MqttConnectOptions options = new MqttConnectOptions();
         options.setUserName(username);
         options.setPassword(password.toCharArray());
         options.setConnectionTimeout(timeout);
         options.setKeepAliveInterval(keepalive);
-        options.setCleanSession(true);
+        options.setCleanSession(false);  // 保持会话，接收离线消息
         options.setAutomaticReconnect(true);
-        
+
         if (!client.isConnected()) {
             client.connect(options);
         }
@@ -54,7 +56,7 @@ public class MyMqttClient {
     }
 
     public void publish(String topic, String message) {
-        publish(topic, message, 0, false);
+        publish(topic, message, 1, false);
     }
 
     public void publish(String topic, String message, int qos, boolean retained) {

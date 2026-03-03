@@ -20,6 +20,8 @@ dependencies = [
     "asyncpg>=0.29.0",
     "pgvector>=0.2.0",
     "dashscope>=1.14.0",
+    "langchain-postgres>=0.0.12",
+    "pytest-asyncio>=0.24.0",
 ]
 
 [project.optional-dependencies]

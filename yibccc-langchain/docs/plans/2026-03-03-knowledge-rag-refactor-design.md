@@ -1,7 +1,7 @@
 # 知识库重构设计文档 - Two-step RAG Chain
 
 **项目:** yibccc-langchain
-**日期:** 2025-01-03
+**日期:** 2026-03-03
 **作者:** AI Assistant
 **状态:** 待批准
 

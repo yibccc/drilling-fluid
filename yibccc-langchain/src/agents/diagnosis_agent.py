@@ -79,7 +79,7 @@ class DiagnosisAgent:
             streaming=True,
             temperature=0.3  # 诊断分析需要更稳定的输出
         )
-        # 使用 ToolStrategy 处理结构化输出（DeepSeek 不支持 json_schema）
+        # 使用 ToolStrategy 处理结构化输出
         self.response_format = ToolStrategy(LLMDiagnosisOutput)
         self.agent = None
 

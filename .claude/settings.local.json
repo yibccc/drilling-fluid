@@ -42,7 +42,8 @@
       "Bash(mvn dependency:resolve:*)",
       "Bash(mvn clean:*)",
       "Bash(head:*)",
-      "Bash(pwd:*)"
+      "Bash(pwd:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
