@@ -9,6 +9,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import AsyncIterator
+from datetime import datetime, timezone
 
 from src.api.dependencies import get_user_id
 from src.models.diagnosis_schemas import (
@@ -16,16 +17,23 @@ from src.models.diagnosis_schemas import (
     DiagnosisEvent,
     CallbackRequest,
     KnowledgeDocumentCreate,
-    KnowledgeDocumentResponse,
-    KnowledgeSearchRequest,
 )
 from src.models.exceptions import AppException
 import src.services.diagnosis_service as diagnosis_service_module
-from src.services.rag_service import RAGService
+from src.services.vector_store_service import VectorStoreService
+from src.config import settings
+from sqlalchemy import make_url
+from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/diagnosis", tags=["diagnosis"])
+
+
+def get_vector_store() -> VectorStoreService:
+    """获取 VectorStoreService 实例"""
+    db_url = make_url(settings.database_url)
+    return VectorStoreService(connection_string=str(db_url))
 
 
 async def sse_generator(events: AsyncIterator[DiagnosisEvent]) -> AsyncIterator[str]:
@@ -93,32 +101,45 @@ async def get_diagnosis_result(
 
 # ========== 知识库管理端点 ==========
 
-@router.post("/knowledge/documents", response_model=dict)
+@router.post("/knowledge/documents")
 async def create_knowledge_document(
     doc: KnowledgeDocumentCreate,
     user_id: str = Depends(get_user_id)
 ):
-    """创建知识文档"""
-    if not diagnosis_service_module.diagnosis_service:
-        raise HTTPException(status_code=503, detail="Diagnosis service not initialized")
+    """创建知识文档切片（同步创建）"""
+    vector_store = get_vector_store()
 
-    doc_id = await diagnosis_service_module.diagnosis_service.rag_service.create_document(doc)
-    return {"doc_id": doc_id, "status": "created"}
+    # 使用 text splitter 对内容进行分块
+    from src.utils import create_text_splitter
+    splitter = create_text_splitter()
+    chunks = splitter.split_text(doc.content)
 
+    # 为每个分块创建 Document 对象
+    documents = []
+    for idx, chunk_text in enumerate(chunks):
+        document = Document(
+            page_content=chunk_text,
+            metadata={
+                "doc_id": doc.doc_id,
+                "title": doc.title,
+                "category": doc.category,
+                "author": doc.author,
+                "created_by": user_id,
+                "chunk_index": idx,
+                "chunk_type": "child",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        documents.append(document)
 
-@router.get("/knowledge/documents/{doc_id}")
-async def get_knowledge_document(
-    doc_id: str,
-    user_id: str = Depends(get_user_id)
-):
-    """获取知识文档"""
-    if not diagnosis_service_module.diagnosis_service:
-        raise HTTPException(status_code=503, detail="Diagnosis service not initialized")
+    # 添加到向量库
+    await vector_store.add_documents(documents)
 
-    doc = await diagnosis_service_module.diagnosis_service.rag_service.get_document(doc_id)
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return doc
+    return {
+        "doc_id": doc.doc_id,
+        "chunk_count": len(chunks),
+        "status": "created"
+    }
 
 
 @router.delete("/knowledge/documents/{doc_id}")
@@ -126,41 +147,14 @@ async def delete_knowledge_document(
     doc_id: str,
     user_id: str = Depends(get_user_id)
 ):
-    """删除知识文档"""
-    if not diagnosis_service_module.diagnosis_service:
-        raise HTTPException(status_code=503, detail="Diagnosis service not initialized")
+    """删除知识文档切片"""
+    vector_store = get_vector_store()
 
-    success = await diagnosis_service_module.diagnosis_service.rag_service.delete_document(doc_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return {"status": "deleted"}
+    # 删除该文档的所有 chunks
+    deleted_count = await vector_store.delete_by_doc_id(doc_id)
 
-
-@router.post("/knowledge/search")
-async def search_knowledge(
-    request: KnowledgeSearchRequest,
-    user_id: str = Depends(get_user_id)
-):
-    """语义检索知识库"""
-    if not diagnosis_service_module.diagnosis_service:
-        raise HTTPException(status_code=503, detail="Diagnosis service not initialized")
-
-    results = await diagnosis_service_module.diagnosis_service.rag_service.search(
-        query=request.query,
-        top_k=request.top_k,
-        category=request.category
-    )
-    return {"results": results}
-
-
-@router.post("/knowledge/rebuild")
-async def rebuild_knowledge_index(
-    doc_id: str = None,
-    user_id: str = Depends(get_user_id)
-):
-    """重建向量索引"""
-    if not diagnosis_service_module.diagnosis_service:
-        raise HTTPException(status_code=503, detail="Diagnosis service not initialized")
-
-    result = await diagnosis_service_module.diagnosis_service.rag_service.rebuild_index(doc_id)
-    return result
+    return {
+        "doc_id": doc_id,
+        "deleted_count": deleted_count,
+        "status": "deleted"
+    }

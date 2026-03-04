@@ -1,5 +1,5 @@
 """
-知识库导入消费者
+Knowledge Import Consumer
 从 Redis Stream 消费导入任务，处理分块和向量化
 """
 
@@ -13,19 +13,21 @@ import redis.asyncio as aioredis
 
 from src.config import settings
 from src.models.exceptions import KnowledgeBaseError
+from src.services.vector_store_service import VectorStoreService
 from src.utils import (
     create_embeddings_client,
-    create_text_splitter,
     ensure_consumer_group,
     decode_value,
 )
+from langchain_core.documents import Document
+from datetime import datetime
 
 
 logger = logging.getLogger(__name__)
 
 
 class KnowledgeImportConsumer:
-    """知识库导入消费者"""
+    """Knowledge Import Consumer"""
 
     def __init__(self, pool, redis_client: aioredis.Redis = None):
         self.pool = pool
@@ -142,7 +144,17 @@ class KnowledgeImportConsumer:
             await self._update_import_status(doc_id, "EMBEDDING")
 
             # 5. 向量化并存储
-            await self._embed_and_store_chunks(doc_id, all_chunks)
+            await self._embed_and_store_chunks(
+                doc_id=doc_id,
+                title=title,
+                category=category,
+                chunks=all_chunks,
+                base_metadata={
+                    "oss_path": oss_path,
+                    "file_record_id": file_record_id,
+                    **metadata
+                }
+            )
 
             # 6. 更新状态：COMPLETED
             await self._update_import_status(doc_id, "COMPLETED", chunk_count=len(all_chunks))
@@ -195,55 +207,117 @@ class KnowledgeImportConsumer:
             )
 
     def _create_chunks(self, text: str) -> List[Dict[str, Any]]:
-        """创建父子分块"""
+        """创建父子分块 - 按段落分块，每个段落作为一个 page"""
         chunks = []
 
-        # 先创建父分块（按段落）
-        parent_chunks = self._create_parent_chunks(text)
-
-        for parent_idx, parent_chunk in enumerate(parent_chunks):
-            # 子分块器
-            child_splitter = create_text_splitter()
-            child_chunks = child_splitter.split_text(parent_chunk)
-
-            for child_idx, child_content in enumerate(child_chunks):
-                chunks.append({
-                    'content': child_content,
-                    'parent_index': parent_idx,
-                    'chunk_index': len(chunks)
-                })
-
-        return chunks
-
-    def _create_parent_chunks(self, text: str) -> List[str]:
-        """创建父分块（按章节/段落）"""
         # 按双换行分段（段落级）
         paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
 
-        # 合并小段落，确保父块约 2000-3000 字符
-        parent_chunks = []
-        current_chunk = ""
+        # 为每个段落创建 chunk，使用 page=1 简化处理
+        for idx, paragraph in enumerate(paragraphs):
+            chunks.append({
+                'text': paragraph,
+                'page': 1,  # 简化为单页处理
+                'position': idx,
+            })
 
-        for para in paragraphs:
-            if len(current_chunk) + len(para) > 3000:
-                if current_chunk:
-                    parent_chunks.append(current_chunk)
-                current_chunk = para
-            else:
-                current_chunk += "\n\n" + para if current_chunk else para
+        return chunks
 
-        if current_chunk:
-            parent_chunks.append(current_chunk)
+    async def _embed_and_store_chunks(
+        self,
+        doc_id: str,
+        title: str,
+        category: str,
+        chunks: List[Dict[str, Any]],
+        base_metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """使用父子模式对文档分块进行向量化并存储
 
-        return parent_chunks
+        Args:
+            doc_id: 文档 ID
+            title: 文档标题
+            category: 知识分类
+            chunks: 分块字典列表，包含 text、page、position 字段
+            base_metadata: 要包含在所有分块中的基础元数据
+        """
+        if not chunks:
+            return
 
-    async def _embed_and_store_chunks(self, doc_id: str, chunks: List[Dict]):
-        """向量化并存储分块"""
-        # 复用现有的 knowledge_repo
-        from src.repositories.knowledge_repo import KnowledgeRepository
+        base_metadata = base_metadata or {}
+        timestamp = datetime.utcnow().isoformat()
 
-        repo = KnowledgeRepository(self.pool, self.embeddings)
-        await repo.create_chunks(doc_id, chunks)
+        try:
+            # 按页面分组分块（每个页面成为一个父分块）
+            page_chunks: Dict[int, List[Dict[str, Any]]] = {}
+            for chunk in chunks:
+                page = chunk.get("page", 1)
+                if page not in page_chunks:
+                    page_chunks[page] = []
+                page_chunks[page].append(chunk)
+
+            # 创建父文档（页面）和子文档（段落）
+            parent_documents: List[Document] = []
+            child_documents_map: Dict[str, List[Document]] = {}
+
+            for page, page_chunk_list in page_chunks.items():
+                # 生成父分块 ID（页面级）
+                parent_chunk_id = f"{doc_id}_page_{page}"
+
+                # 合并此页面的所有文本作为父分块
+                page_text = "\n".join([c.get("text", "") for c in page_chunk_list])
+
+                # 创建父文档
+                parent_doc = Document(
+                    page_content=page_text,
+                    metadata={
+                        "chunk_id": parent_chunk_id,
+                        "doc_id": doc_id,
+                        "title": title,
+                        "category": category,
+                        "page": page,
+                        "chunk_type": "parent",
+                        **base_metadata,
+                        "created_at": timestamp,
+                    },
+                )
+                parent_documents.append(parent_doc)
+
+                # 为此页面创建子文档（段落）
+                child_documents: List[Document] = []
+                for idx, chunk in enumerate(page_chunk_list):
+                    child_chunk_id = f"{parent_chunk_id}_chunk_{idx}"
+                    child_doc = Document(
+                        page_content=chunk.get("text", ""),
+                        metadata={
+                            "chunk_id": child_chunk_id,
+                            "doc_id": doc_id,
+                            "title": title,
+                            "category": category,
+                            "page": chunk.get("page", page),
+                            "position": chunk.get("position", idx),
+                            "chunk_type": "child",
+                            **base_metadata,
+                            "created_at": timestamp,
+                        },
+                    )
+                    child_documents.append(child_doc)
+
+                child_documents_map[parent_chunk_id] = child_documents
+
+            # 使用 VectorStoreService 存储父文档和子文档
+            # 注意：这需要 VectorStoreService 使用正确的连接字符串初始化
+            # 目前，我们使用代码库中的现有模式
+            vector_store_service = VectorStoreService(settings.get_langchain_connection_string())
+
+            await vector_store_service.add_parent_child_documents(
+                parent_documents=parent_documents,
+                child_documents_map=child_documents_map,
+            )
+
+        except Exception as e:
+            raise KnowledgeBaseError(
+                f"Failed to embed and store chunks: {str(e)}"
+            )
 
     async def _update_import_status(self, doc_id: str, status: str,
                                    chunk_count: int = None, error: str = None):

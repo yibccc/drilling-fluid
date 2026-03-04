@@ -1,7 +1,7 @@
 # src/services/vector_store_service.py
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 from langchain_postgres import PGVector
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_core.documents import Document
@@ -26,7 +26,7 @@ class VectorStoreService:
             connection=connection_string,
             use_jsonb=True,
         )
-        logger.info(f"VectorStoreService initialized with collection: knowledge_docs")
+        logger.info(f"VectorStoreService 已初始化，使用 collection: knowledge_docs")
 
     async def add_documents(self, docs: List[Document]) -> List[str]:
         """添加文档到向量库"""
@@ -46,3 +46,120 @@ class VectorStoreService:
     async def delete(self, ids: List[str]) -> bool:
         """删除文档"""
         return await self.vector_store.adelete(ids)
+
+    async def add_parent_child_documents(
+        self,
+        parent_documents: List[Document],
+        child_documents_map: Dict[str, List[Document]],
+    ) -> Dict[str, List[str]]:
+        """添加父文档及其子分块
+
+        Args:
+            parent_documents: 父文档列表（页面）
+            child_documents_map: 键映射 parent_id -> 子分块列表
+
+        Returns:
+            字典，映射 parent_id -> 插入的分块 ID 列表
+        """
+        result: Dict[str, List[str]] = {}
+
+        # 首先添加所有父文档
+        if parent_documents:
+            parent_ids = await self.vector_store.aadd_documents(parent_documents)
+            for i, doc in enumerate(parent_documents):
+                parent_id = doc.metadata.get("chunk_id") or parent_ids[i]
+                result[parent_id] = []
+
+        # 然后添加子文档，建立父关系
+        for parent_id, child_docs in child_documents_map.items():
+            if not child_docs:
+                continue
+
+            # 为每个子文档设置元数据中的 parent_chunk_id
+            for doc in child_docs:
+                doc.metadata["parent_chunk_id"] = parent_id
+
+            child_ids = await self.vector_store.aadd_documents(child_docs)
+
+            # 跟踪插入的 ID
+            for i, doc in enumerate(child_docs):
+                chunk_id = doc.metadata.get("chunk_id") or child_ids[i]
+                if parent_id not in result:
+                    result[parent_id] = []
+                result[parent_id].append(chunk_id)
+
+        return result
+
+    async def query_by_parent_chunk(
+        self,
+        parent_chunk_id: str,
+        limit: int = 100,
+    ) -> List[Document]:
+        """查询给定父分块的所有子分块
+
+        Args:
+            parent_chunk_id: 父分块 ID
+            limit: 最大结果数
+
+        Returns:
+            子文档分块列表
+        """
+        # 使用元数据过滤器查询 parent_chunk_id
+        docs = await self.vector_store.asimilarity_search(
+            query="",  # 空查询以获取所有匹配的文档
+            k=limit,
+            filter={"parent_chunk_id": parent_chunk_id},
+        )
+
+        return docs
+
+    async def query_by_doc_id(
+        self,
+        doc_id: str,
+        limit: int = 1000,
+    ) -> List[Document]:
+        """查询文档的所有分块
+
+        Args:
+            doc_id: 文档 ID
+            limit: 最大结果数
+
+        Returns:
+            所有文档分块列表（包括父分块和子分块）
+        """
+        # 使用元数据过滤器查询 doc_id
+        docs = await self.vector_store.asimilarity_search(
+            query="",  # 空查询以获取所有匹配的文档
+            k=limit,
+            filter={"doc_id": doc_id},
+        )
+
+        return docs
+
+    async def delete_by_doc_id(self, doc_id: str) -> int:
+        """删除文档的所有分块
+
+        Args:
+            doc_id: 文档 ID
+
+        Returns:
+            删除的分块数量
+        """
+        # 首先查询该文档的所有分块以获取它们的 ID
+        docs = await self.query_by_doc_id(doc_id)
+
+        if not docs:
+            return 0
+
+        # 从元数据中提取分块 ID
+        chunk_ids = []
+        for doc in docs:
+            chunk_id = doc.metadata.get("chunk_id")
+            if chunk_id:
+                chunk_ids.append(chunk_id)
+
+        # 按照 ID 删除
+        if chunk_ids:
+            await self.delete(chunk_ids)
+
+        return len(chunk_ids)

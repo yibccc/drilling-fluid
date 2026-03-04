@@ -10,7 +10,6 @@ import logging
 from typing import AsyncIterator, Optional
 
 from src.agents.diagnosis_agent import DiagnosisAgent
-from src.services.rag_service import RAGService
 from src.services.callback_service import CallbackService
 from src.repositories.diagnosis_repo import DiagnosisRepository
 from src.models.diagnosis_schemas import (
@@ -36,12 +35,10 @@ class DiagnosisService:
     def __init__(
         self,
         agent: DiagnosisAgent,
-        rag_service: RAGService,
         callback_service: CallbackService,
         repo: DiagnosisRepository
     ):
         self.agent = agent
-        self.rag_service = rag_service
         self.callback_service = callback_service
         self.repo = repo
 

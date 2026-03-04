@@ -208,10 +208,11 @@ async def diagnosis_repo(diagnosis_pg_pool):
 
 
 @pytest.fixture
-async def knowledge_repo(diagnosis_pg_pool, mock_embeddings):
-    """知识库仓储 fixture"""
-    from src.repositories.knowledge_repo import KnowledgeRepository
-    return KnowledgeRepository(diagnosis_pg_pool, embedding_client=mock_embeddings)
+async def vector_store_service():
+    """向量存储服务 fixture"""
+    from src.services.vector_store_service import VectorStoreService
+    from src.config import settings
+    return VectorStoreService(settings.pgvector_connection_string)
 
 
 @pytest.fixture

@@ -21,9 +21,10 @@
 | LLM 编排 | LangChain | >= 1.0.0 |
 | Agent 编排 | LangGraph | >= 0.2.0 |
 | Checkpoint 存储 | AsyncRedisSaver | >= 0.1.0 |
-| 数据库 | PostgreSQL (asyncpg) | >= 0.29.0 |
+| 向量存储 | PostgreSQL + PGVector | >= 0.29.0 |
 | 缓存/队列 | Redis | >= 5.0.0 |
-| LLM 提供商 | DeepSeek API | OpenAI 兼容 |
+| LLM 提供商 | 通义千问 API | OpenAI 兼容 |
+| Embedding 提供商 | 通义千问 API | text-embedding-v3 |
 | Python 版本 | | >= 3.11 |
 
 ### 架构特性
@@ -34,6 +35,7 @@
 - **增量同步**: 只同步新增消息到 PostgreSQL，避免重复
 - **容错机制**: Redis 不可用时降级到 MemorySaver
 - **工具调用**: 支持动态工具注册和调用
+- **知识库 RAG**: 基于 LangChain PGVector 的语义检索和诊断分析
 
 ## 快速开始
 
@@ -60,9 +62,15 @@ pip install -e .
 # 创建数据库
 createdb yibccc_agent
 
+# 启用 pgvector 扩展
+psql yibccc_agent -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
 # 执行初始化脚本
-psql yibccc_agent < sql/schema.sql
+psql yibccc_agent < docs/sql/schema_v3.sql
+psql yibccc_agent < docs/sql/diagnosis_schema.sql
 ```
+
+**注意**: 知识库向量存储由 LangChain PGVector 自动管理，首次使用时会自动创建 `langchain_pg_*` 表。
 
 ### 配置环境变量
 
@@ -116,6 +124,12 @@ uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
 ```bash
 python -m src.services.sync_service
+```
+
+### 运行知识导入消费者（独立进程）
+
+```bash
+python -m src.services.knowledge_import_consumer
 ```
 
 ## 项目结构
@@ -266,6 +280,11 @@ def my_custom_tool(query: str) -> str:
 | `chat_sessions` | 会话元信息 (session_id, 创建时间等) |
 | `chat_messages` | 消息历史 (角色、内容、时间戳) |
 | `langchain_checkpoints` | LangGraph checkpoint 备份 |
+| `langchain_pg_collection` | PGVector 集合元数据 (自动创建) |
+| `langchain_pg_embedding` | PGVector 向量存储 (自动创建) |
+| `knowledge_documents` | 知识库文档元数据 |
+| `diagnosis_tasks` | 诊断任务 |
+| `diagnosis_results` | 诊断结果 |
 
 ### 数据流
 
