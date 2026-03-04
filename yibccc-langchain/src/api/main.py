@@ -48,10 +48,8 @@ async def lifespan(app: FastAPI):
     from src.repositories.diagnosis_repo import DiagnosisRepository
 
     # 初始化 VectorStoreService
-    from sqlalchemy import make_url
-    db_url = make_url(settings.database_url)
     vector_store = VectorStoreService(
-        connection_string=str(db_url)
+        connection_string=settings.get_langchain_connection_string()
     )
 
     diagnosis_agent = DiagnosisAgent(

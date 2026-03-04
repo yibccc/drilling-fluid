@@ -16,6 +16,6 @@ aliyun:
     endpoint: ${OSS_ENDPOINT:oss-cn-hangzhou.aliyuncs.com}
     access-key-id: ${OSS_ACCESS_KEY_ID}
     access-key-secret: ${OSS_ACCESS_KEY_SECRET}
-    bucket-name: ${OSS_BUCKET_NAME:kira-knowledge-files}
+    bucket-name: ${OSS_BUCKET_NAME:yibccc}
 
 

@@ -25,6 +25,7 @@ class VectorStoreService:
             collection_name="knowledge_docs",
             connection=connection_string,
             use_jsonb=True,
+            async_mode=True,
         )
         logger.info(f"VectorStoreService 已初始化，使用 collection: knowledge_docs")
 
@@ -106,7 +107,7 @@ class VectorStoreService:
         """
         # 使用元数据过滤器查询 parent_chunk_id
         docs = await self.vector_store.asimilarity_search(
-            query="",  # 空查询以获取所有匹配的文档
+            query="query",  # 避免某些模型空字符串报错
             k=limit,
             filter={"parent_chunk_id": parent_chunk_id},
         )
@@ -129,12 +130,21 @@ class VectorStoreService:
         """
         # 使用元数据过滤器查询 doc_id
         docs = await self.vector_store.asimilarity_search(
-            query="",  # 空查询以获取所有匹配的文档
+            query="query",  # 避免某些模型空字符串报错
             k=limit,
             filter={"doc_id": doc_id},
         )
 
         return docs
+
+    async def get_document_by_chunk_id(self, chunk_id: str) -> Optional[Document]:
+        """通过 chunk_id 获取文档"""
+        docs = await self.vector_store.asimilarity_search(
+            query="query", # 避免某些模型空字符串报错
+            k=1,
+            filter={"chunk_id": chunk_id}
+        )
+        return docs[0] if docs else None
 
     async def delete_by_doc_id(self, doc_id: str) -> int:
         """删除文档的所有分块

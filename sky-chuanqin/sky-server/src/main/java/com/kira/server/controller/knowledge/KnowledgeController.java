@@ -30,7 +30,7 @@ public class KnowledgeController {
     private final KnowledgeImportService importService;
 
     /**
-     * 上传单个文件
+     * 上传单个文件（异步处理）
      *
      * @param file       上传的文件
      * @param category   文档分类（可选）
@@ -38,13 +38,13 @@ public class KnowledgeController {
      * @return 上传响应，包含文档 ID 和处理状态
      */
     @PostMapping("/upload")
-    @ApiOperation("上传单个文档")
+    @ApiOperation("上传单个文档(异步)")
     public Result<KnowledgeUploadResponse> uploadFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "category", required = false, defaultValue = "default") String category,
             @RequestParam(value = "subcategory", required = false) String subcategory
     ) {
-        log.info("收到文件上传请求: filename={}, category={}, subcategory={}",
+        log.info("收到文件异步上传请求: filename={}, category={}, subcategory={}",
                 file.getOriginalFilename(), category, subcategory);
 
         // 验证文件
@@ -57,8 +57,14 @@ public class KnowledgeController {
             // 立即更新状态
             importService.updateStatus(docId, ImportStatus.PARSING);
 
-            // 异步处理（直接传递 MultipartFile）
-            importService.processFileAsync(docId, file, category, subcategory);
+            // 获取文件字节以避免异步处理时的临时文件删除问题
+            byte[] fileBytes = file.getBytes();
+            String filename = file.getOriginalFilename();
+            String contentType = file.getContentType();
+            long fileSize = file.getSize();
+
+            // 异步处理（传递字节数组）
+            importService.processFileAsync(docId, fileBytes, filename, contentType, fileSize, category, subcategory);
 
             KnowledgeUploadResponse response = KnowledgeUploadResponse.builder()
                     .docId(docId)
@@ -74,6 +80,53 @@ public class KnowledgeController {
         } catch (Exception e) {
             log.error("启动异步处理失败: {}", e.getMessage(), e);
             throw new RuntimeException("文件处理失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 同步上传单个文件，直接由 Agent 处理并切片
+     *
+     * @param file       上传的文件
+     * @param category   文档分类（可选）
+     * @param subcategory 文档子分类（可选）
+     * @return 上传响应，包含文档 ID 和处理状态
+     */
+    @PostMapping("/upload/sync")
+    @ApiOperation("上传单个文档(同步切片)")
+    public Result<KnowledgeUploadResponse> uploadFileSync(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "category", required = false, defaultValue = "default") String category,
+            @RequestParam(value = "subcategory", required = false) String subcategory
+    ) {
+        log.info("收到文件同步上传请求: filename={}, category={}, subcategory={}",
+                file.getOriginalFilename(), category, subcategory);
+
+        // 验证文件
+        validateFile(file);
+
+        try {
+            // 生成文档 ID
+            String docId = importService.generateDocId();
+
+            // 同步处理
+            importService.processFileSync(docId, file, category, subcategory);
+
+            KnowledgeUploadResponse response = KnowledgeUploadResponse.builder()
+                    .docId(docId)
+                    .title(file.getOriginalFilename())
+                    .status(ImportStatus.COMPLETED.name())
+                    .message("文件已成功解析并存储至向量知识库")
+                    .fileSize(file.getSize())
+                    .contentType(file.getContentType())
+                    .build();
+
+            return Result.success(response);
+
+        } catch (com.kira.server.exception.DuplicateFileException e) {
+            return Result.error("文件已存在: " + e.getMessage());
+        } catch (Exception e) {
+            log.error("文件同步处理失败: {}", e.getMessage(), e);
+            return Result.error("文件处理失败: " + e.getMessage());
         }
     }
 
@@ -180,7 +233,7 @@ public class KnowledgeController {
         if (!isSupportedFileType(extension)) {
             throw new IllegalArgumentException(
                     "不支持的文件类型: " + extension +
-                    "。支持的类型：pdf, doc, docx, xls, xlsx, ppt, pptx, txt"
+                    "。支持的类型：pdf, doc, docx, xls, xlsx, ppt, pptx, txt, md"
             );
         }
     }
@@ -204,6 +257,7 @@ public class KnowledgeController {
                 extension.equals("xlsx") ||
                 extension.equals("ppt") ||
                 extension.equals("pptx") ||
-                extension.equals("txt");
+                extension.equals("txt") ||
+                extension.equals("md");
     }
 }

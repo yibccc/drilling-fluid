@@ -79,8 +79,8 @@ class Settings(BaseSettings):
         """获取 LangChain 连接字符串 (使用 psycopg 连接器)"""
         if self.LANGCHAIN_CONNECTION_STRING:
             return self.LANGCHAIN_CONNECTION_STRING
-        # 默认使用现有数据库连接，格式为 postgresql+psycopg://
-        return f"postgresql+psycopg://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
+        # 默认使用现有数据库连接，使用 psycopg 异步连接器
+        return f"postgresql+psycopg_async://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_database}"
 
     def validate_api_key(self, api_key: str) -> bool:
         """验证 API Key"""

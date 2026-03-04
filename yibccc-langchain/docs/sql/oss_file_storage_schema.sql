@@ -19,19 +19,3 @@ CREATE TABLE IF NOT EXISTS file_records (
     INDEX idx_file_hash (file_hash),
     INDEX idx_file_category (category)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件存储记录表';
-
--- 2. 修改 knowledge_documents 表，添加 OSS 相关字段
-ALTER TABLE knowledge_documents
-ADD COLUMN IF NOT EXISTS oss_path VARCHAR(500) COMMENT 'OSS 存储路径';
-
-ALTER TABLE knowledge_documents
-ADD COLUMN IF NOT EXISTS file_record_id BIGINT COMMENT '关联的文件记录 ID';
-
--- 3. 创建索引：优化文档查询
-CREATE INDEX IF NOT EXISTS idx_knowledge_doc_oss_path
-ON knowledge_documents(oss_path);
-
--- 4. 添加外键关联（可选，根据需要决定是否启用）
--- ALTER TABLE knowledge_documents
--- ADD CONSTRAINT fk_file_record
--- FOREIGN KEY (file_record_id) REFERENCES file_records(id);

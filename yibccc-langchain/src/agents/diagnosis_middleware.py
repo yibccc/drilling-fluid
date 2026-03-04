@@ -29,19 +29,36 @@ class RetrievalMiddleware(AgentMiddleware):
             if not user_query:
                 return self._handle_error("查询为空", state)
 
-            # 2. 执行检索
-            retrieved_docs = await self._safe_search(
+            # 2. 执行检索 (检索子分块)
+            base_filter = self._extract_filter_from_state(state) or {}
+            child_filter = {**base_filter, "chunk_type": "child"}
+
+            retrieved_child_docs = await self._safe_search(
                 query=user_query,
-                filter=self._extract_filter_from_state(state),
+                filter=child_filter,
                 state=state
             )
 
             # 3. 检查检索结果
-            if not retrieved_docs:
+            if not retrieved_child_docs:
                 return self._handle_empty_search(state)
 
-            # 4. 格式化并注入上下文
-            context = self._format_context(retrieved_docs)
+            # 4. 获取对应的父文档
+            parent_docs = []
+            seen_parent_ids = set()
+            for child in retrieved_child_docs:
+                parent_id = child.metadata.get("parent_chunk_id")
+                if parent_id and parent_id not in seen_parent_ids:
+                    seen_parent_ids.add(parent_id)
+                    parent_doc = await self.vector_store.get_document_by_chunk_id(parent_id)
+                    if parent_doc:
+                        parent_docs.append(parent_doc)
+
+            # 如果没找到父文档，回退使用子文档
+            final_docs = parent_docs if parent_docs else retrieved_child_docs
+
+            # 5. 格式化并注入上下文
+            context = self._format_context(final_docs)
             system_message = f"""你是一位钻井液性能诊断专家。
 
 请基于以下知识库内容回答用户的问题：

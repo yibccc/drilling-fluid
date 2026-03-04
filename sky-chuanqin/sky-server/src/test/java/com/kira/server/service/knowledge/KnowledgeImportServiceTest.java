@@ -39,7 +39,7 @@ class KnowledgeImportServiceTest {
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
         // 创建服务实例（使用 @RequiredArgsConstructor）
-        importService = new KnowledgeImportService(redisTemplate, objectMapper, fileStorageService);
+        importService = new KnowledgeImportService(redisTemplate, objectMapper, fileStorageService, null);
 
         // 设置 Mock 行为
         when(redisTemplate.opsForValue()).thenReturn(mock(org.springframework.data.redis.core.ValueOperations.class));

@@ -51,8 +51,37 @@ public class FileStorageService {
             String category,
             String subcategory
     ) {
-        String filename = file.getOriginalFilename();
+        try {
+            return uploadAndCheckDuplicate(
+                    file.getBytes(),
+                    file.getOriginalFilename(),
+                    file.getContentType(),
+                    category,
+                    subcategory
+            );
+        } catch (IOException e) {
+            log.error("读取文件失败: {}", file.getOriginalFilename(), e);
+            throw new RuntimeException("文件读取失败: " + e.getMessage(), e);
+        }
+    }
 
+    /**
+     * 上传文件并检查重复（基于字节数组）
+     *
+     * @param fileBytes   文件字节数组
+     * @param filename    文件名
+     * @param contentType 内容类型
+     * @param category    文档分类
+     * @param subcategory 文档子分类（可选）
+     * @return 文件记录信息
+     */
+    public FileRecordDTO uploadAndCheckDuplicate(
+            byte[] fileBytes,
+            String filename,
+            String contentType,
+            String category,
+            String subcategory
+    ) {
         // 1. 检查是否已存在（数据库唯一约束）
         LambdaQueryWrapper<FileRecord> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(FileRecord::getOriginalFilename, filename)
@@ -68,42 +97,33 @@ public class FileStorageService {
             );
         }
 
-        try {
-            // 2. 读取文件内容
-            byte[] fileBytes = file.getBytes();
+        // 3. 计算文件哈希
+        String hash = calculateSHA256(fileBytes);
 
-            // 3. 计算文件哈希
-            String hash = calculateSHA256(fileBytes);
+        // 4. 生成 OSS 路径
+        String ossPath = generateOssPath(category, filename, hash);
 
-            // 4. 生成 OSS 路径
-            String ossPath = generateOssPath(category, filename, hash);
+        // 5. 上传到 OSS
+        uploadToOSS(ossPath, fileBytes, contentType);
 
-            // 5. 上传到 OSS
-            uploadToOSS(ossPath, fileBytes, file.getContentType());
+        // 6. 保存记录到数据库
+        FileRecord record = FileRecord.builder()
+                .fileHash(hash)
+                .originalFilename(filename)
+                .category(category)
+                .subcategory(subcategory)
+                .contentType(contentType)
+                .fileSize((long) fileBytes.length)
+                .ossPath(ossPath)
+                .bucketName(ossProperties.getBucketName())
+                .uploadedAt(LocalDateTime.now())
+                .build();
 
-            // 6. 保存记录到数据库
-            FileRecord record = FileRecord.builder()
-                    .fileHash(hash)
-                    .originalFilename(filename)
-                    .category(category)
-                    .subcategory(subcategory)
-                    .contentType(file.getContentType())
-                    .fileSize(file.getSize())
-                    .ossPath(ossPath)
-                    .bucketName(ossProperties.getBucketName())
-                    .uploadedAt(LocalDateTime.now())
-                    .build();
+        fileRecordMapper.insert(record);
 
-            fileRecordMapper.insert(record);
+        log.info("文件上传成功: filename={}, ossPath={}", filename, ossPath);
 
-            log.info("文件上传成功: filename={}, ossPath={}", filename, ossPath);
-
-            return toDTO(record);
-
-        } catch (IOException e) {
-            log.error("文件读取失败: filename={}", filename, e);
-            throw new RuntimeException("文件读取失败: " + e.getMessage(), e);
-        }
+        return toDTO(record);
     }
 
     /**

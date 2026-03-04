@@ -32,8 +32,7 @@ router = APIRouter(prefix="/api/v1/diagnosis", tags=["diagnosis"])
 
 def get_vector_store() -> VectorStoreService:
     """获取 VectorStoreService 实例"""
-    db_url = make_url(settings.database_url)
-    return VectorStoreService(connection_string=str(db_url))
+    return VectorStoreService(connection_string=settings.get_langchain_connection_string())
 
 
 async def sse_generator(events: AsyncIterator[DiagnosisEvent]) -> AsyncIterator[str]:
@@ -110,30 +109,52 @@ async def create_knowledge_document(
     vector_store = get_vector_store()
 
     # 使用 text splitter 对内容进行分块
-    from src.utils import create_text_splitter
+    from src.utils.common import create_text_splitter
     splitter = create_text_splitter()
     chunks = splitter.split_text(doc.content)
 
-    # 为每个分块创建 Document 对象
-    documents = []
+    # 构建父文档
+    parent_chunk_id = f"{doc.doc_id}_parent"
+    parent_doc = Document(
+        page_content=doc.content,
+        metadata={
+            "chunk_id": parent_chunk_id,
+            "doc_id": doc.doc_id,
+            "title": doc.title,
+            "category": doc.category,
+            "subcategory": getattr(doc, "subcategory", None),
+            "created_by": user_id,
+            "chunk_type": "parent",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+    # 为每个分块创建子文档
+    child_documents = []
     for idx, chunk_text in enumerate(chunks):
+        child_chunk_id = f"{parent_chunk_id}_child_{idx}"
         document = Document(
             page_content=chunk_text,
             metadata={
+                "chunk_id": child_chunk_id,
+                "parent_chunk_id": parent_chunk_id,
                 "doc_id": doc.doc_id,
                 "title": doc.title,
                 "category": doc.category,
-                "author": doc.author,
+                "subcategory": getattr(doc, "subcategory", None),
                 "created_by": user_id,
                 "chunk_index": idx,
                 "chunk_type": "child",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
-        documents.append(document)
+        child_documents.append(document)
 
     # 添加到向量库
-    await vector_store.add_documents(documents)
+    await vector_store.add_parent_child_documents(
+        parent_documents=[parent_doc],
+        child_documents_map={parent_chunk_id: child_documents}
+    )
 
     return {
         "doc_id": doc.doc_id,
