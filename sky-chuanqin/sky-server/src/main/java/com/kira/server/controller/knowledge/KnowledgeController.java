@@ -170,8 +170,14 @@ public class KnowledgeController {
                 // 更新状态
                 importService.updateStatus(docId, ImportStatus.PARSING);
 
-                // 异步处理（直接传递 MultipartFile）
-                importService.processFileAsync(docId, file, category, null);
+                // 获取文件字节以避免异步处理时的临时文件删除问题
+                byte[] fileBytes = file.getBytes();
+                String filename = file.getOriginalFilename();
+                String contentType = file.getContentType();
+                long fileSize = file.getSize();
+
+                // 异步处理（传递字节数组）
+                importService.processFileAsync(docId, fileBytes, filename, contentType, fileSize, category, null);
 
                 results.put(file.getOriginalFilename(), docId);
                 successCount++;
