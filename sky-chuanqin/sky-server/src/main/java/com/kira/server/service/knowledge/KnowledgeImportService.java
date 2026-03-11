@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.web.reactive.function.client.WebClient;
+import org.xml.sax.SAXException;
 
 /**
  * 知识库导入服务
@@ -66,7 +67,7 @@ public class KnowledgeImportService {
      * 异步处理文件
      *
      * @param docId      文档 ID（预先生成）
-     * @param file       上传的文件
+     * @param fileBytes  上传的文件字节数组
      * @param category    文档分类
      * @param subcategory 文档子分类
      */
@@ -192,7 +193,7 @@ public class KnowledgeImportService {
      * 解析文档内容
      */
     private DocumentContent parseContent(InputStream inputStream, String filename)
-            throws IOException, TikaException, org.xml.sax.SAXException {
+            throws IOException, TikaException, SAXException {
         // 创建解析器
         AutoDetectParser parser = new AutoDetectParser();
 
@@ -248,12 +249,12 @@ public class KnowledgeImportService {
     /**
      * 解析日期字符串
      */
-    private java.time.LocalDateTime parseDate(String dateStr) {
+    private LocalDateTime parseDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
             return null;
         }
         try {
-            return java.time.LocalDateTime.parse(
+            return LocalDateTime.parse(
                     dateStr.replace("T", " ").replace("Z", "").substring(0, 19));
         } catch (Exception e) {
             return null;

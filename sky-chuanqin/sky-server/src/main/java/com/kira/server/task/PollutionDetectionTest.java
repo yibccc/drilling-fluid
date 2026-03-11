@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * 钻井液污染检测定时任务
@@ -38,9 +39,6 @@ public class PollutionDetectionTest {
 
     @Autowired
     private IFullPerformanceService fullPerformanceService;
-
-    @Autowired
-    private IPollutionAlarmLogService pollutionAlarmLogService;
 
     @Autowired
     private RedisTemplate redisTemplate;
@@ -94,7 +92,7 @@ public class PollutionDetectionTest {
      */
     private void detectPollutionForWell(String wellId, String location,
                                         String pollutionType,
-                                        java.util.function.Supplier<Map<String, List<ParameterVO>>> detection) {
+                                        Supplier<Map<String, List<ParameterVO>>> detection) {
         try {
             log.info("开始检测井 {} 的{}", wellId, pollutionType);
 
