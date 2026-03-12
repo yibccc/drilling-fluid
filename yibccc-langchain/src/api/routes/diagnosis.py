@@ -15,7 +15,6 @@ from src.api.dependencies import get_user_id
 from src.models.diagnosis_schemas import (
     DiagnosisRequest,
     DiagnosisEvent,
-    CallbackRequest,
     KnowledgeDocumentCreate,
 )
 from src.models.exceptions import AppException
@@ -61,20 +60,6 @@ async def analyze_diagnosis(
         sse_generator(diagnosis_service_module.diagnosis_service.analyze(request)),
         media_type="text/event-stream"
     )
-
-
-@router.post("/callback")
-async def diagnosis_callback(
-    callback: CallbackRequest,
-    user_id: str = Depends(get_user_id)
-):
-    """结果回调接口（SpringBoot 调用）"""
-    # 这个端点用于 SpringBoot 主动查询或确认回调结果
-    # 实际回调由 diagnosis_service 发送
-    return {
-        "status": "callback_received",
-        "task_id": callback.task_id
-    }
 
 
 @router.get("/{task_id}")
