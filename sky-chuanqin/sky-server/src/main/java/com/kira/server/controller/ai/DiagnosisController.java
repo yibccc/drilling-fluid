@@ -28,7 +28,7 @@ public class DiagnosisController {
     private final DiagnosisCacheService diagnosisCacheService;
 
     /**
-     * 诊断分析 - SSE 转发
+     * 诊断分析 - SSE 转发并缓存
      *
      * @param request 诊断请求
      * @return SSE 事件流
@@ -36,13 +36,14 @@ public class DiagnosisController {
     @ApiOperation("诊断分析")
     @PostMapping(value = "/analyze", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> analyze(@RequestBody DiagnosisRequest request) {
-        log.info("诊断请求: wellId={}, alertType={}",
-                request.getWellId(), request.getAlertType());
+        log.info("诊断请求: alertId={}, wellId={}, alertType={}",
+                request.getAlertId(), request.getWellId(), request.getAlertType());
 
-        return sseForwardService.forwardSSE(
+        return sseForwardService.forwardSSEWithCache(
                 "/api/v1/diagnosis/analyze",
                 request,
-                Duration.ofMinutes(5)
+                Duration.ofMinutes(5),
+                request.getAlertId()
         );
     }
 

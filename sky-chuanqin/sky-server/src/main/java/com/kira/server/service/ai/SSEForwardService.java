@@ -24,6 +24,7 @@ public class SSEForwardService {
 
     private final WebClient agentWebClient;
     private final DiagnosisProperties diagnosisProperties;
+    private final DiagnosisCacheService diagnosisCacheService;
 
     /**
      * SSE 流式转发
@@ -61,6 +62,34 @@ public class SSEForwardService {
                     return Flux.just(errorEvent);
                 })
                 .doOnComplete(() -> log.info("SSE 流完成，URI: {}", uri));
+    }
+
+    /**
+     * SSE 转发并缓存结果
+     *
+     * @param uri     Agent 服务 URI
+     * @param request 请求体
+     * @param timeout 超时时间
+     * @param alertId 用于缓存的 key
+     * @return SSE 事件流
+     */
+    public Flux<String> forwardSSEWithCache(String uri, Object request,
+                                            Duration timeout, String alertId) {
+        // 1. 转发请求
+        Flux<String> stream = forwardSSE(uri, request, timeout);
+
+        // 2. 收集完整结果并缓存
+        StringBuilder resultBuilder = new StringBuilder();
+
+        return stream
+                .doOnNext(resultBuilder::append)
+                .doOnComplete(() -> {
+                    // 缓存完整结果
+                    diagnosisCacheService.saveDiagnosisResult(alertId, resultBuilder.toString());
+                })
+                .doOnError(e -> {
+                    log.error("诊断失败，alertId={}, error={}", alertId, e.getMessage());
+                });
     }
 
     /**
