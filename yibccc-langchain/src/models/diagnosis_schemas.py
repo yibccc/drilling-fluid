@@ -59,6 +59,7 @@ class DiagnosisContext(BaseModel):
 
 class DiagnosisRequest(BaseModel):
     """诊断分析请求"""
+    alert_id: str = Field(..., description="预警ID，用于缓存和查询")
     task_id: str = Field(default_factory=lambda: f"TASK-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:6].upper()}")
     well_id: str = Field(..., description="井号")
     alert_type: str = Field(..., description="预警类型")
