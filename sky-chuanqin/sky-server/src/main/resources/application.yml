@@ -80,3 +80,4 @@ diagnosis:
   result-cache-ttl: 15
   timeout-minutes: 5
   enabled: true
+  internal-api-key: ${INTERNAL_API_KEY:your-secure-internal-key}

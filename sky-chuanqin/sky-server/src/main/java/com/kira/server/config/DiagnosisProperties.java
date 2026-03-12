@@ -29,4 +29,9 @@ public class DiagnosisProperties {
      * 是否启用 AI 诊断
      */
     private boolean enabled = true;
+
+    /**
+     * 内部 API Key（用于 SpringBoot 调用 FastAPI 鉴权）
+     */
+    private String internalApiKey;
 }
