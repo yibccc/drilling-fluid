@@ -14,6 +14,12 @@ import java.util.List;
 public class DiagnosisRequest {
 
     /**
+     * 预警ID（用于缓存和查询）
+     */
+    @JsonProperty("alert_id")
+    private String alertId;
+
+    /**
      * 井号ID
      */
     @JsonProperty("well_id")

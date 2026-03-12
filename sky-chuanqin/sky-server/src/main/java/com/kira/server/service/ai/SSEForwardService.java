@@ -1,5 +1,6 @@
 package com.kira.server.service.ai;
 
+import com.kira.server.config.DiagnosisProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
@@ -22,6 +23,7 @@ import java.time.Duration;
 public class SSEForwardService {
 
     private final WebClient agentWebClient;
+    private final DiagnosisProperties diagnosisProperties;
 
     /**
      * SSE 流式转发
@@ -36,7 +38,8 @@ public class SSEForwardService {
         log.info("转发 SSE 请求到: {}", uri);
 
         WebClient.RequestBodySpec requestBodySpec = agentWebClient.post()
-                .uri(uri);
+                .uri(uri)
+                .header("X-Internal-Api-Key", diagnosisProperties.getInternalApiKey());
 
         if (request != null) {
             requestBodySpec.body(BodyInserters.fromValue(request));
