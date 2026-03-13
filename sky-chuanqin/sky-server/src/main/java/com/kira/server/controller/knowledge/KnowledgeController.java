@@ -8,6 +8,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -28,6 +29,7 @@ import java.util.Map;
 public class KnowledgeController {
 
     private final KnowledgeImportService importService;
+    private final WebClient agentWebClient;
 
     /**
      * 上传单个文件（异步处理）
@@ -80,53 +82,6 @@ public class KnowledgeController {
         } catch (Exception e) {
             log.error("启动异步处理失败: {}", e.getMessage(), e);
             throw new RuntimeException("文件处理失败: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 同步上传单个文件，直接由 Agent 处理并切片
-     *
-     * @param file       上传的文件
-     * @param category   文档分类（可选）
-     * @param subcategory 文档子分类（可选）
-     * @return 上传响应，包含文档 ID 和处理状态
-     */
-    @PostMapping("/upload/sync")
-    @ApiOperation("上传单个文档(同步切片)")
-    public Result<KnowledgeUploadResponse> uploadFileSync(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "category", required = false, defaultValue = "default") String category,
-            @RequestParam(value = "subcategory", required = false) String subcategory
-    ) {
-        log.info("收到文件同步上传请求: filename={}, category={}, subcategory={}",
-                file.getOriginalFilename(), category, subcategory);
-
-        // 验证文件
-        validateFile(file);
-
-        try {
-            // 生成文档 ID
-            String docId = importService.generateDocId();
-
-            // 同步处理
-            importService.processFileSync(docId, file, category, subcategory);
-
-            KnowledgeUploadResponse response = KnowledgeUploadResponse.builder()
-                    .docId(docId)
-                    .title(file.getOriginalFilename())
-                    .status(ImportStatus.COMPLETED.name())
-                    .message("文件已成功解析并存储至向量知识库")
-                    .fileSize(file.getSize())
-                    .contentType(file.getContentType())
-                    .build();
-
-            return Result.success(response);
-
-        } catch (com.kira.server.exception.DuplicateFileException e) {
-            return Result.error("文件已存在: " + e.getMessage());
-        } catch (Exception e) {
-            log.error("文件同步处理失败: {}", e.getMessage(), e);
-            return Result.error("文件处理失败: " + e.getMessage());
         }
     }
 
@@ -210,6 +165,33 @@ public class KnowledgeController {
         log.info("查询文档状态: docId={}", docId);
         Map<String, Object> status = importService.getDocumentStatus(docId);
         return Result.success(status);
+    }
+
+    /**
+     * 知识召回测试
+     *
+     * @param request 检索请求
+     * @return 召回结果
+     */
+    @PostMapping("/retrieval-test")
+    @ApiOperation("知识召回测试")
+    public Result<Map> retrievalTest(@RequestBody Map<String, Object> request) {
+        log.info("知识召回测试: query={}, docId={}, category={}",
+                request.get("query"), request.get("doc_id"), request.get("category"));
+
+        try {
+            Map response = agentWebClient.post()
+                    .uri("/api/v1/diagnosis/knowledge/search")
+                    .bodyValue(request)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
+
+            return Result.success(response);
+        } catch (Exception e) {
+            log.error("知识召回测试失败: {}", e.getMessage(), e);
+            return Result.error("知识召回测试失败: " + e.getMessage());
+        }
     }
 
     /**

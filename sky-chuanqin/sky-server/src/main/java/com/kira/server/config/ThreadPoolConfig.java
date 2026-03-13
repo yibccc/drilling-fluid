@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
@@ -104,7 +105,7 @@ public class ThreadPoolConfig {
      * @return 配置好的线程池执行器
      */
     @Bean(name = "taskExecutor")
-    public Executor taskExecutor() {
+    public AsyncTaskExecutor taskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
 
         // 异步任务线程池使用较小的配置
@@ -127,4 +128,3 @@ public class ThreadPoolConfig {
         return executor;
     }
 }
-

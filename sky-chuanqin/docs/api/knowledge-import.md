@@ -473,4 +473,4 @@ curl -X DELETE http://localhost:18080/api/knowledge/documents/DOC-xxx
 
 - 设计文档: `docs/detailed-design/KNOWLEDGE_IMPORT_DESIGN.md`
 - Python 消费者: `yibccc-langchain/docs/detailed-design/knowledge-import-consumer.md`
-- 数据库脚本: `yibccc-langchain/docs/sql/knowledge_import_schema.sql`
+- 数据库脚本: `yibccc-langchain/docs/sql/schema.sql`

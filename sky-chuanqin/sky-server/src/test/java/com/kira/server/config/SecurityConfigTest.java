@@ -33,11 +33,4 @@ class SecurityConfigTest {
                 .andExpect(status().isNotFound()); // 404 因为服务未运行，而非 401
     }
 
-    @Test
-    void testAICallbackEndpointAccessibleWithoutAuth() throws Exception {
-        mockMvc.perform(MockMvcRequestBuilders.post("/api/ai/callback/diagnosis")
-                .contentType("application/json")
-                .content("{\"task_id\":\"test\"}"))
-                .andExpect(status().isNotFound()); // 404 因为服务未运行，而非 401
-    }
 }

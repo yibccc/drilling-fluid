@@ -110,26 +110,10 @@ data: {"type":"end"}
 
 #### 2.2.4 DiagnosisController
 
-**端点**:
-- `POST /api/ai/diagnosis/analyze` - 诊断分析
-- `GET /api/ai/diagnosis/{taskId}` - 查询结果
+AI 诊断详细设计不再在本文维护。
 
-**请求格式**:
-```json
-{
-  "well_id": "井号",
-  "alert_type": "预警类型",
-  "alert_triggered_at": "触发时间",
-  "alert_threshold": {
-    "field": "字段名",
-    "condition": "条件",
-    "threshold": 阈值,
-    "current_value": 当前值
-  },
-  "samples": [/* 钻井液样本数据 */],
-  "stream": true
-}
-```
+当前唯一设计口径见：
+`/Users/kirayang/IdeaProjects/drilling-fluid/sky-chuanqin/docs/detailed-design/AI_DIAGNOSIS_CHAIN_DESIGN.md`
 
 ### 2.3 数据模型设计
 
@@ -189,45 +173,8 @@ data: {"type":"end"}
 
 ### 3.2 诊断接口
 
-**请求**:
-```http
-POST /api/ai/diagnosis/analyze HTTP/1.1
-Content-Type: application/json
-
-{
-  "well_id": "well-001",
-  "alert_type": "HIGH_DENSITY",
-  "alert_triggered_at": "2026-02-26T10:00:00",
-  "alert_threshold": {
-    "field": "density",
-    "condition": "greater_than",
-    "threshold": 1.5,
-    "current_value": 1.8
-  },
-  "samples": [{
-    "id": "sample-001",
-    "wellId": "well-001",
-    "sampleTime": "2026-02-26T10:00:00",
-    "formation": "sandstone",
-    "density": 1.8
-    // ... 其他字段
-  }],
-  "stream": true
-}
-```
-
-**响应** (SSE 流式):
-```
-Content-Type: text/event-stream
-
-data: {"type":"start","task_id":"TASK-xxx","well_id":"well-001"}
-
-data: {"type":"thinking","content":"正在分析...","step":"data_analysis"}
-
-data: {"type":"diagnosis","content":"密度偏高，建议..."}
-
-data: {"type":"done"}
-```
+本章节已归档，AI 诊断接口与 SSE 事件约定统一参考：
+`/Users/kirayang/IdeaProjects/drilling-fluid/sky-chuanqin/docs/detailed-design/AI_DIAGNOSIS_CHAIN_DESIGN.md`
 
 ## 4. 安全设计
 

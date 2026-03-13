@@ -1,5 +1,6 @@
 package com.kira.server.controller.ai.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
@@ -35,6 +36,7 @@ public class DiagnosisRequest {
      * 预警触发时间
      */
     @JsonProperty("alert_triggered_at")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime alertTriggeredAt;
 
     /**
@@ -52,12 +54,6 @@ public class DiagnosisRequest {
      * 诊断上下文信息
      */
     private DiagnosisContext context;
-
-    /**
-     * 回调URL（用于异步结果通知）
-     */
-    @JsonProperty("callback_url")
-    private String callbackUrl;
 
     /**
      * 是否流式返回
@@ -86,6 +82,7 @@ public class DiagnosisRequest {
         @JsonProperty("well_id")
         private String wellId;
         @JsonProperty("sample_time")
+        @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
         private LocalDateTime sampleTime;
         private String formation;
         @JsonProperty("outlet_temp")
@@ -95,11 +92,17 @@ public class DiagnosisRequest {
         private Double gel10s;
         @JsonProperty("gel_10m")
         private Double gel10m;
+        @JsonProperty("rpm_3")
         private Double rpm3;
+        @JsonProperty("rpm_6")
         private Double rpm6;
+        @JsonProperty("rpm_100")
         private Double rpm100;
+        @JsonProperty("rpm_200")
         private Double rpm200;
+        @JsonProperty("rpm_300")
         private Double rpm300;
+        @JsonProperty("rpm_600")
         private Double rpm600;
         @JsonProperty("plastic_viscosity")
         private Double plasticViscosity;

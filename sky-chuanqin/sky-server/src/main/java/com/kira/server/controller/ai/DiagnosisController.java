@@ -10,8 +10,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * AI 诊断分析控制器
@@ -51,16 +53,15 @@ public class DiagnosisController {
      * 查询诊断结果
      *
      * @param taskId 任务ID
-     * @return SSE 事件流
+     * @return 任务结果 JSON
      */
     @ApiOperation("查询诊断结果")
-    @GetMapping(value = "/{taskId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> getResult(@PathVariable String taskId) {
+    @GetMapping("/{taskId}")
+    public Mono<Map<String, Object>> getResult(@PathVariable String taskId) {
         log.info("获取诊断结果: taskId={}", taskId);
 
-        return sseForwardService.forwardSSE(
+        return sseForwardService.forwardJsonGet(
                 "/api/v1/diagnosis/" + taskId,
-                null,
                 Duration.ofSeconds(30)
         );
     }
@@ -88,7 +89,6 @@ public class DiagnosisController {
         }
 
         log.info("返回缓存的诊断结果: alertId={}, length={}", alertId, cachedResult.length());
-        // 将缓存的 SSE 内容重新作为流返回
-        return Flux.fromArray(cachedResult.split("\n"));
+        return sseForwardService.replayCachedSSE(cachedResult);
     }
 }

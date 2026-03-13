@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识库与诊断 Agent 联调工作台</title>
+    <style>
+        :root {
+            --bg: linear-gradient(145deg, #f4efe4 0%, #e6eee7 45%, #dce7df 100%);
+            --card: rgba(255, 252, 247, 0.9);
+            --card-border: rgba(69, 77, 72, 0.14);
+            --ink: #1f2a28;
+            --muted: #5b6863;
+            --accent: #0f6b61;
+            --accent-strong: #0a4e47;
+            --accent-soft: #dff1eb;
+            --warn: #b15535;
+            --warn-soft: #f8e4db;
+            --ok: #1f6d45;
+            --ok-soft: #dff1e6;
+            --shadow: 0 24px 58px rgba(40, 54, 49, 0.14);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "PingFang SC", "Noto Sans SC", "Helvetica Neue", sans-serif;
+            color: var(--ink);
+            background: var(--bg);
+        }
+
+        .page {
+            width: min(1440px, calc(100% - 28px));
+            margin: 18px auto;
+            padding: 24px;
+            border-radius: 28px;
+            border: 1px solid var(--card-border);
+            background: var(--card);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(16px);
+        }
+
+        .hero {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .eyebrow {
+            width: fit-content;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent-strong);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(30px, 4vw, 48px);
+            line-height: 1.04;
+            letter-spacing: -0.04em;
+        }
+
+        .lead {
+            margin: 0;
+            max-width: 980px;
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.75;
+        }
+
+        .status-bar,
+        .shared-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .status-bar {
+            margin-bottom: 16px;
+        }
+
+        .status-pill,
+        .shared-card {
+            border-radius: 16px;
+            border: 1px solid rgba(69, 77, 72, 0.1);
+            background: rgba(255, 255, 255, 0.72);
+        }
+
+        .status-pill {
+            padding: 10px 14px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .shared-strip {
+            margin-bottom: 18px;
+        }
+
+        .shared-card {
+            min-width: 220px;
+            flex: 1 1 220px;
+            padding: 14px 16px;
+        }
+
+        .shared-card strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 12px;
+            color: var(--muted);
+            letter-spacing: 0.06em;
+        }
+
+        .shared-value {
+            font-size: 16px;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        .status-pending {
+            color: var(--accent-strong);
+        }
+
+        .status-ok {
+            color: var(--ok);
+        }
+
+        .status-failed {
+            color: var(--warn);
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(380px, 0.95fr) minmax(420px, 1.05fr);
+            gap: 18px;
+            align-items: start;
+        }
+
+        .column {
+            display: grid;
+            gap: 18px;
+        }
+
+        .panel {
+            padding: 20px;
+            border-radius: 22px;
+            border: 1px solid rgba(69, 77, 72, 0.1);
+            background: rgba(255, 255, 255, 0.74);
+        }
+
+        .panel h2 {
+            margin: 0 0 6px;
+            font-size: 20px;
+        }
+
+        .panel p {
+            margin: 0 0 14px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .field-grid {
+            display: grid;
+            gap: 14px;
+        }
+
+        .field label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--muted);
+        }
+
+        .field input,
+        textarea {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(69, 77, 72, 0.16);
+            background: #fcfaf5;
+            color: var(--ink);
+            font-size: 14px;
+        }
+
+        .field input[type="file"] {
+            padding: 10px;
+            background: #f7faf7;
+        }
+
+        textarea {
+            min-height: 340px;
+            resize: vertical;
+            font-family: "SFMono-Regular", "Menlo", "Monaco", monospace;
+            line-height: 1.6;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        button {
+            appearance: none;
+            border: 0;
+            border-radius: 14px;
+            padding: 12px 16px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            opacity: 0.56;
+            cursor: not-allowed;
+        }
+
+        .primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .secondary {
+            background: #eef3ef;
+            color: var(--ink);
+        }
+
+        .danger {
+            background: var(--warn-soft);
+            color: var(--warn);
+        }
+
+        .summary {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .summary-card {
+            padding: 14px;
+            border-radius: 16px;
+            background: #f8faf8;
+            border: 1px solid rgba(69, 77, 72, 0.08);
+        }
+
+        .summary-card strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 12px;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+        }
+
+        .summary-value {
+            font-size: 15px;
+            font-weight: 700;
+            word-break: break-word;
+        }
+
+        .timeline,
+        .result-list,
+        .event-list {
+            display: grid;
+            gap: 10px;
+            max-height: 280px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .event-card,
+        .result-card {
+            padding: 14px;
+            border-radius: 16px;
+            border: 1px solid rgba(69, 77, 72, 0.08);
+            background: #f7f8f5;
+        }
+
+        .event-card.ok {
+            background: var(--ok-soft);
+        }
+
+        .event-card.failed {
+            background: var(--warn-soft);
+        }
+
+        .event-title,
+        .event-type {
+            margin: 0 0 6px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .event-meta,
+        .result-card p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.65;
+            word-break: break-word;
+        }
+
+        .result-card h3 {
+            margin: 0 0 8px;
+            font-size: 14px;
+        }
+
+        pre {
+            margin: 0;
+            min-height: 180px;
+            padding: 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(69, 77, 72, 0.12);
+            background: #fcfaf5;
+            color: var(--ink);
+            overflow: auto;
+            font-size: 13px;
+            line-height: 1.65;
+            font-family: "SFMono-Regular", "Menlo", "Monaco", monospace;
+        }
+
+        .divider {
+            height: 1px;
+            margin: 18px 0;
+            background: rgba(69, 77, 72, 0.1);
+        }
+
+        .stream-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 12px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .note {
+            margin-top: 14px;
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(15, 107, 97, 0.08);
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.7;
+        }
+
+        .two-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        @media (max-width: 1100px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 700px) {
+            .page {
+                width: min(100%, calc(100% - 12px));
+                margin: 6px auto;
+                padding: 14px;
+            }
+
+            .two-grid {
+                grid-template-columns: 1fr;
+            }
+
+            textarea {
+                min-height: 280px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <section class="hero">
+        <div class="eyebrow">KNOWLEDGE + DIAGNOSIS DEBUG</div>
+        <h1>知识库与处置 Agent 联调工作台</h1>
+        <p class="lead">
+            这个页面把知识库导入、状态轮询、召回测试和 AI 诊断 SSE 联调放到同一个入口里。
+            左侧核对知识文档从 <code>/api/knowledge/upload</code> 到可检索状态的链路，右侧直接调用
+            <code>/api/ai/diagnosis/analyze</code> 并查看事件流，方便你把知识库结果和处置 Agent 一起联调。
+        </p>
+    </section>
+
+    <div class="status-bar">
+        <div class="status-pill">页面地址：<code>/knowledge-diagnosis-debug.html</code></div>
+        <div class="status-pill">上传接口：<code>/api/knowledge/upload</code></div>
+        <div class="status-pill">状态接口：<code>/api/knowledge/documents/{docId}/status</code></div>
+        <div class="status-pill">召回接口：<code>/api/knowledge/retrieval-test</code></div>
+        <div class="status-pill">诊断接口：<code>/api/ai/diagnosis/analyze</code></div>
+    </div>
+
+    <div class="shared-strip">
+        <div class="shared-card">
+            <strong>当前 DOC ID</strong>
+            <div id="sharedDocId" class="shared-value">尚未上传</div>
+        </div>
+        <div class="shared-card">
+            <strong>知识导入状态</strong>
+            <div id="sharedImportStatus" class="shared-value status-pending">等待操作</div>
+        </div>
+        <div class="shared-card">
+            <strong>召回命中数</strong>
+            <div id="sharedRetrievalHits" class="shared-value">0</div>
+        </div>
+        <div class="shared-card">
+            <strong>当前 Alert ID</strong>
+            <div id="sharedAlertId" class="shared-value">尚未生成</div>
+        </div>
+    </div>
+
+    <div class="layout">
+        <div class="column">
+            <section class="panel">
+                <h2>知识导入</h2>
+                <p>上传本地文件后自动轮询导入状态。导入完成后，再在下方直接做召回测试。</p>
+
+                <form id="uploadForm" class="field-grid">
+                    <div class="field">
+                        <label for="fileInput">文件</label>
+                        <input id="fileInput" name="file" type="file" required>
+                    </div>
+                    <div class="two-grid">
+                        <div class="field">
+                            <label for="categoryInput">分类 category</label>
+                            <input id="categoryInput" name="category" type="text" value="default" placeholder="例如 density">
+                        </div>
+                        <div class="field">
+                            <label for="subcategoryInput">子分类 subcategory</label>
+                            <input id="subcategoryInput" name="subcategory" type="text" placeholder="例如 density-high">
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button id="uploadButton" class="primary" type="submit">上传并轮询</button>
+                        <button id="stopPollingButton" class="secondary" type="button">停止轮询</button>
+                        <button id="resetKnowledgeButton" class="danger" type="button">重置知识区</button>
+                    </div>
+                </form>
+
+                <div class="note">
+                    上传接口返回成功，只表示任务已进入处理链路。只有轮询状态达到 <code>COMPLETED</code>，文档才算进入可检索知识库。
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>知识导入结果</h2>
+                <p>这里保留导入链路的关键信息、状态时间线与原始响应，方便你对照 Spring Boot 和 Agent 端日志。</p>
+
+                <div class="summary">
+                    <div class="summary-card">
+                        <strong>DOC ID</strong>
+                        <div id="knowledgeDocIdValue" class="summary-value">尚未上传</div>
+                    </div>
+                    <div class="summary-card">
+                        <strong>当前状态</strong>
+                        <div id="knowledgeStatusValue" class="summary-value status-pending">等待操作</div>
+                    </div>
+                    <div class="summary-card">
+                        <strong>最新提示</strong>
+                        <div id="knowledgeMessageValue" class="summary-value">尚无消息</div>
+                    </div>
+                </div>
+
+                <div id="knowledgeTimeline" class="timeline"></div>
+                <pre id="knowledgeRawOutput">等待上传…</pre>
+
+                <div class="divider"></div>
+
+                <h2>召回测试</h2>
+                <p>默认会带上当前页面里的 <code>docId</code> 和分类过滤，便于确认刚导入的知识是否已经可以被检索。</p>
+
+                <div class="field-grid">
+                    <div class="field">
+                        <label for="retrievalQueryInput">查询语句</label>
+                        <input id="retrievalQueryInput" type="text" placeholder="例如：密度偏高怎么办">
+                    </div>
+                    <div class="two-grid">
+                        <div class="field">
+                            <label for="topKInput">返回条数 top_k</label>
+                            <input id="topKInput" type="number" min="1" max="10" value="3">
+                        </div>
+                        <div class="field">
+                            <label for="manualDocIdInput">手工指定 doc_id</label>
+                            <input id="manualDocIdInput" type="text" placeholder="留空默认使用当前 DOC ID">
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button id="retrievalButton" class="primary" type="button">执行召回测试</button>
+                    </div>
+                </div>
+
+                <div id="retrievalResults" class="result-list"></div>
+            </section>
+        </div>
+
+        <div class="column">
+            <section class="panel">
+                <h2>诊断请求</h2>
+                <p>右侧直接向 Spring Boot 的诊断接口发起请求，并流式读取 SSE。共享上下文会自动同步当前 <code>alert_id</code>。</p>
+
+                <div class="actions">
+                    <button id="runDiagnosisButton" class="primary" type="button">发起诊断</button>
+                    <button id="stopDiagnosisButton" class="danger" type="button" disabled>停止请求</button>
+                    <button id="resetDiagnosisButton" class="secondary" type="button">恢复预设</button>
+                    <button id="formatDiagnosisButton" class="secondary" type="button">格式化 JSON</button>
+                    <button id="syncAlertButton" class="secondary" type="button">用当前时间生成 alert_id</button>
+                </div>
+
+                <textarea id="diagnosisPayload"></textarea>
+
+                <div class="note">
+                    联调建议：先完成左侧导入和召回，再根据右侧请求体调整告警类型、样本数据和阈值。若仍返回 500，优先查看下方原始 SSE 文本和服务端日志。
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>诊断流式结果</h2>
+                <p>上半部分展示解析后的事件卡片，下半部分保留原始 SSE 文本，便于排查事件格式、丢字段或中途异常。</p>
+                <div class="stream-header">
+                    <strong id="diagnosisStreamStatus">当前状态：空闲</strong>
+                    <span id="diagnosisEventCounter">事件数：0</span>
+                </div>
+                <div id="diagnosisEventList" class="event-list"></div>
+                <pre id="diagnosisRawStream">等待诊断请求…</pre>
+            </section>
+        </div>
+    </div>
+</div>
+
+<script>
+    const defaultDiagnosisPayload = {
+        alert_id: "test-alert-ui-001",
+        well_id: "well-001",
+        alert_type: "DENSITY_HIGH",
+        alert_triggered_at: "2024-01-01T10:00:00",
+        alert_threshold: {
+            field: "density",
+            condition: "greater_than",
+            threshold: 1.30,
+            current_value: 1.35
+        },
+        samples: [
+            {
+                id: "sample-001",
+                well_id: "well-001",
+                sample_time: "2024-01-01T10:00:00",
+                formation: "砂岩",
+                outlet_temp: 80.0,
+                density: 1.25,
+                plastic_viscosity: 15.0,
+                yield_point: 8.0,
+                gel_10s: 3.0,
+                gel_10m: 8.0,
+                rpm_3: 5.0,
+                rpm_6: 8.0,
+                rpm_100: 45.0,
+                rpm_200: 80.0,
+                rpm_300: 120.0,
+                rpm_600: 180.0,
+                flow_behavior_index: 0.8,
+                consistency_coefficient: 50.0,
+                apparent_viscosity: 45.0,
+                yield_plastic_ratio: 0.53
+            }
+        ],
+        context: {
+            current_depth: 3200.0,
+            formation_type: "砂岩",
+            drilling_phase: "钻进",
+            recent_operations: [
+                "循环钻井液",
+                "调整密度"
+            ]
+        },
+        stream: true
+    };
+
+    const sharedDocId = document.getElementById("sharedDocId");
+    const sharedImportStatus = document.getElementById("sharedImportStatus");
+    const sharedRetrievalHits = document.getElementById("sharedRetrievalHits");
+    const sharedAlertId = document.getElementById("sharedAlertId");
+
+    const uploadForm = document.getElementById("uploadForm");
+    const uploadButton = document.getElementById("uploadButton");
+    const stopPollingButton = document.getElementById("stopPollingButton");
+    const resetKnowledgeButton = document.getElementById("resetKnowledgeButton");
+    const fileInput = document.getElementById("fileInput");
+    const categoryInput = document.getElementById("categoryInput");
+    const subcategoryInput = document.getElementById("subcategoryInput");
+    const knowledgeDocIdValue = document.getElementById("knowledgeDocIdValue");
+    const knowledgeStatusValue = document.getElementById("knowledgeStatusValue");
+    const knowledgeMessageValue = document.getElementById("knowledgeMessageValue");
+    const knowledgeTimeline = document.getElementById("knowledgeTimeline");
+    const knowledgeRawOutput = document.getElementById("knowledgeRawOutput");
+    const retrievalQueryInput = document.getElementById("retrievalQueryInput");
+    const topKInput = document.getElementById("topKInput");
+    const manualDocIdInput = document.getElementById("manualDocIdInput");
+    const retrievalButton = document.getElementById("retrievalButton");
+    const retrievalResults = document.getElementById("retrievalResults");
+
+    const diagnosisPayloadEl = document.getElementById("diagnosisPayload");
+    const runDiagnosisButton = document.getElementById("runDiagnosisButton");
+    const stopDiagnosisButton = document.getElementById("stopDiagnosisButton");
+    const resetDiagnosisButton = document.getElementById("resetDiagnosisButton");
+    const formatDiagnosisButton = document.getElementById("formatDiagnosisButton");
+    const syncAlertButton = document.getElementById("syncAlertButton");
+    const diagnosisStreamStatus = document.getElementById("diagnosisStreamStatus");
+    const diagnosisEventCounter = document.getElementById("diagnosisEventCounter");
+    const diagnosisEventList = document.getElementById("diagnosisEventList");
+    const diagnosisRawStream = document.getElementById("diagnosisRawStream");
+
+    let pollingTimer = null;
+    let currentDocId = "";
+    let diagnosisController = null;
+    let diagnosisEventCount = 0;
+
+    function updateSharedDocId(docId) {
+        sharedDocId.textContent = docId || "尚未上传";
+    }
+
+    function updateSharedImportStatus(text, tone = "status-pending") {
+        sharedImportStatus.textContent = text;
+        sharedImportStatus.className = `shared-value ${tone}`;
+    }
+
+    function updateSharedRetrievalHits(count) {
+        sharedRetrievalHits.textContent = String(count);
+    }
+
+    function updateSharedAlertId(alertId) {
+        sharedAlertId.textContent = alertId || "尚未生成";
+    }
+
+    function getUploadDocId(payload) {
+        return payload?.data?.docId || payload?.data?.doc_id || "";
+    }
+
+    function getUploadStatus(payload) {
+        return payload?.data?.status || payload?.data?.import_status || "PARSING";
+    }
+
+    function getUploadMessage(payload) {
+        return payload?.data?.message || payload?.msg || "文件正在处理中";
+    }
+
+    function setKnowledgeStatus(text, tone = "status-pending") {
+        knowledgeStatusValue.textContent = text;
+        knowledgeStatusValue.className = `summary-value ${tone}`;
+        updateSharedImportStatus(text, tone);
+    }
+
+    function setKnowledgeMessage(text) {
+        knowledgeMessageValue.textContent = text;
+    }
+
+    function appendKnowledgeEvent(title, detail, tone = "") {
+        const card = document.createElement("div");
+        card.className = `event-card ${tone}`.trim();
+
+        const titleNode = document.createElement("p");
+        titleNode.className = "event-title";
+        titleNode.textContent = title;
+
+        const detailNode = document.createElement("p");
+        detailNode.className = "event-meta";
+        detailNode.textContent = detail;
+
+        card.appendChild(titleNode);
+        card.appendChild(detailNode);
+        knowledgeTimeline.prepend(card);
+    }
+
+    function setKnowledgeRawOutput(label, payload) {
+        const content = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+        knowledgeRawOutput.textContent = `${label}\n\n${content}`;
+    }
+
+    function stopPolling() {
+        if (pollingTimer) {
+            clearInterval(pollingTimer);
+            pollingTimer = null;
+        }
+    }
+
+    function resetKnowledgeView() {
+        stopPolling();
+        currentDocId = "";
+        uploadForm.reset();
+        categoryInput.value = "default";
+        knowledgeDocIdValue.textContent = "尚未上传";
+        setKnowledgeStatus("等待操作");
+        setKnowledgeMessage("尚无消息");
+        knowledgeTimeline.innerHTML = "";
+        retrievalResults.innerHTML = "";
+        manualDocIdInput.value = "";
+        knowledgeRawOutput.textContent = "等待上传…";
+        updateSharedDocId("");
+        updateSharedRetrievalHits(0);
+    }
+
+    function renderRetrievalResults(results) {
+        retrievalResults.innerHTML = "";
+
+        if (!results.length) {
+            const empty = document.createElement("div");
+            empty.className = "result-card";
+            empty.innerHTML = "<h3>暂无命中</h3><p>当前查询没有召回到结果，请尝试更换关键词、分类，或确认文档已经完成入库。</p>";
+            retrievalResults.appendChild(empty);
+            return;
+        }
+
+        results.forEach((item, index) => {
+            const card = document.createElement("div");
+            card.className = "result-card";
+            card.innerHTML = `
+                <h3>#${index + 1} ${item.title || "未命名文档"}</h3>
+                <p><strong>doc_id:</strong> ${item.doc_id || "-"}</p>
+                <p><strong>category:</strong> ${item.category || "-"}</p>
+                <p><strong>chunk_id:</strong> ${item.chunk_id || "-"}</p>
+                <p><strong>preview:</strong> ${item.content_preview || "-"}</p>
+            `;
+            retrievalResults.appendChild(card);
+        });
+    }
+
+    async function fetchKnowledgeStatus(docId) {
+        const response = await fetch(`/api/knowledge/documents/${encodeURIComponent(docId)}/status`, {
+            method: "GET",
+            headers: {
+                "Accept": "application/json"
+            }
+        });
+
+        const text = await response.text();
+        let payload;
+
+        try {
+            payload = JSON.parse(text);
+        } catch (error) {
+            payload = { raw: text };
+        }
+
+        if (!response.ok) {
+            throw new Error(`状态查询失败: ${response.status} ${text}`);
+        }
+
+        setKnowledgeRawOutput("状态接口原始响应", payload);
+        return payload;
+    }
+
+    function startPolling(docId) {
+        stopPolling();
+
+        const poll = async () => {
+            try {
+                const payload = await fetchKnowledgeStatus(docId);
+                const importStatus = payload?.data?.importStatus || "UNKNOWN";
+                const tone = importStatus === "COMPLETED"
+                    ? "status-ok"
+                    : importStatus === "FAILED"
+                        ? "status-failed"
+                        : "status-pending";
+
+                setKnowledgeStatus(importStatus, tone);
+                setKnowledgeMessage(`最近更新时间：${new Date().toLocaleTimeString()}`);
+                appendKnowledgeEvent("状态轮询", `docId=${docId}，importStatus=${importStatus}`, importStatus === "COMPLETED" ? "ok" : importStatus === "FAILED" ? "failed" : "");
+
+                if (importStatus === "COMPLETED") {
+                    setKnowledgeMessage("文档已进入可检索知识库");
+                    stopPolling();
+                }
+
+                if (importStatus === "FAILED") {
+                    setKnowledgeMessage("导入失败，请结合后端日志继续排查");
+                    stopPolling();
+                }
+            } catch (error) {
+                setKnowledgeStatus("POLLING_ERROR", "status-failed");
+                setKnowledgeMessage(error.message);
+                appendKnowledgeEvent("轮询异常", error.message, "failed");
+                setKnowledgeRawOutput("轮询异常", error.stack || error.message);
+                stopPolling();
+            }
+        };
+
+        poll();
+        pollingTimer = setInterval(poll, 2000);
+    }
+
+    uploadForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const file = fileInput.files[0];
+        if (!file) {
+            setKnowledgeStatus("NO_FILE", "status-failed");
+            setKnowledgeMessage("请先选择文件");
+            return;
+        }
+
+        uploadButton.disabled = true;
+        stopPolling();
+        knowledgeTimeline.innerHTML = "";
+        updateSharedRetrievalHits(0);
+
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("category", categoryInput.value || "default");
+
+        if (subcategoryInput.value.trim()) {
+            formData.append("subcategory", subcategoryInput.value.trim());
+        }
+
+        setKnowledgeStatus("UPLOADING");
+        setKnowledgeMessage(`正在上传 ${file.name}`);
+        appendKnowledgeEvent("上传开始", `文件=${file.name}，大小=${file.size} bytes`);
+
+        try {
+            const response = await fetch("/api/knowledge/upload", {
+                method: "POST",
+                body: formData
+            });
+
+            const text = await response.text();
+            let payload;
+
+            try {
+                payload = JSON.parse(text);
+            } catch (error) {
+                payload = { raw: text };
+            }
+
+            setKnowledgeRawOutput("上传接口原始响应", payload);
+
+            const uploadDocId = getUploadDocId(payload);
+            const uploadStatus = getUploadStatus(payload);
+            const uploadMessage = getUploadMessage(payload);
+
+            if (!response.ok || !uploadDocId) {
+                throw new Error(`上传失败: ${response.status} ${text}`);
+            }
+
+            currentDocId = uploadDocId;
+            knowledgeDocIdValue.textContent = currentDocId;
+            manualDocIdInput.value = currentDocId;
+            updateSharedDocId(currentDocId);
+            setKnowledgeStatus(uploadStatus);
+            setKnowledgeMessage(uploadMessage);
+            appendKnowledgeEvent("上传成功", `docId=${currentDocId}，status=${uploadStatus}`, "ok");
+
+            startPolling(currentDocId);
+        } catch (error) {
+            setKnowledgeStatus("UPLOAD_FAILED", "status-failed");
+            setKnowledgeMessage(error.message);
+            appendKnowledgeEvent("上传失败", error.message, "failed");
+            setKnowledgeRawOutput("上传异常", error.stack || error.message);
+        } finally {
+            uploadButton.disabled = false;
+        }
+    });
+
+    stopPollingButton.addEventListener("click", () => {
+        stopPolling();
+        appendKnowledgeEvent("轮询已停止", currentDocId ? `docId=${currentDocId}` : "当前没有活动任务");
+        setKnowledgeMessage("已手动停止轮询");
+    });
+
+    resetKnowledgeButton.addEventListener("click", resetKnowledgeView);
+
+    retrievalButton.addEventListener("click", async () => {
+        const query = retrievalQueryInput.value.trim();
+        if (!query) {
+            setKnowledgeStatus("RECALL_NO_QUERY", "status-failed");
+            setKnowledgeMessage("请先输入召回测试语句");
+            return;
+        }
+
+        retrievalButton.disabled = true;
+        retrievalResults.innerHTML = "";
+        setKnowledgeMessage("正在执行召回测试");
+
+        const payload = {
+            query,
+            top_k: Number(topKInput.value || 3),
+            category: categoryInput.value.trim() || undefined,
+            doc_id: manualDocIdInput.value.trim() || currentDocId || undefined
+        };
+
+        try {
+            const response = await fetch("/api/knowledge/retrieval-test", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const text = await response.text();
+            let parsed;
+
+            try {
+                parsed = JSON.parse(text);
+            } catch (error) {
+                parsed = { raw: text };
+            }
+
+            setKnowledgeRawOutput("召回测试原始响应", parsed);
+
+            if (!response.ok || parsed.code === 0) {
+                throw new Error(`召回测试失败: ${response.status} ${text}`);
+            }
+
+            const results = parsed?.data?.results || [];
+            renderRetrievalResults(results);
+            updateSharedRetrievalHits(results.length);
+            appendKnowledgeEvent("召回测试完成", `query=${query}，命中=${results.length} 条`, results.length ? "ok" : "");
+            setKnowledgeMessage(`召回测试完成，命中 ${results.length} 条结果`);
+        } catch (error) {
+            appendKnowledgeEvent("召回测试失败", error.message, "failed");
+            setKnowledgeMessage(error.message);
+            setKnowledgeStatus("RECALL_FAILED", "status-failed");
+            setKnowledgeRawOutput("召回测试异常", error.stack || error.message);
+            updateSharedRetrievalHits(0);
+        } finally {
+            retrievalButton.disabled = false;
+        }
+    });
+
+    function setDiagnosisPayload(value) {
+        diagnosisPayloadEl.value = JSON.stringify(value, null, 2);
+        updateSharedAlertId(value.alert_id || "");
+    }
+
+    function parseDiagnosisPayload() {
+        try {
+            const payload = JSON.parse(diagnosisPayloadEl.value);
+            validateDiagnosisPayload(payload);
+            updateSharedAlertId(payload.alert_id || "");
+            return payload;
+        } catch (error) {
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error("请求 JSON 不是合法格式，请先修正后再重试。");
+        }
+    }
+
+    function validateDiagnosisPayload(payload) {
+        const requiredTopLevelFields = [
+            "alert_id",
+            "well_id",
+            "alert_type",
+            "alert_triggered_at",
+            "alert_threshold",
+            "samples"
+        ];
+
+        requiredTopLevelFields.forEach((field) => {
+            if (payload[field] === undefined || payload[field] === null || payload[field] === "") {
+                throw new Error("诊断请求缺少必填字段: " + field);
+            }
+        });
+
+        const threshold = payload.alert_threshold;
+        ["field", "condition", "threshold", "current_value"].forEach((field) => {
+            if (threshold[field] === undefined || threshold[field] === null || threshold[field] === "") {
+                throw new Error("alert_threshold 缺少必填字段: " + field);
+            }
+        });
+
+        if (!Array.isArray(payload.samples) || payload.samples.length === 0) {
+            throw new Error("samples 至少需要一条采样数据。");
+        }
+
+        const requiredSampleFields = [
+            "id",
+            "well_id",
+            "sample_time",
+            "formation",
+            "outlet_temp",
+            "density",
+            "gel_10s",
+            "gel_10m",
+            "rpm_3",
+            "rpm_6",
+            "rpm_100",
+            "rpm_200",
+            "rpm_300",
+            "rpm_600",
+            "plastic_viscosity",
+            "yield_point",
+            "flow_behavior_index",
+            "consistency_coefficient",
+            "apparent_viscosity",
+            "yield_plastic_ratio"
+        ];
+
+        payload.samples.forEach((sample, index) => {
+            requiredSampleFields.forEach((field) => {
+                if (sample[field] === undefined || sample[field] === null || sample[field] === "") {
+                    throw new Error("samples[" + index + "] 缺少必填字段: " + field);
+                }
+            });
+        });
+    }
+
+    function setDiagnosisStatus(text) {
+        diagnosisStreamStatus.textContent = "当前状态：" + text;
+    }
+
+    function resetDiagnosisOutput() {
+        diagnosisEventCount = 0;
+        diagnosisEventCounter.textContent = "事件数：0";
+        diagnosisEventList.innerHTML = "";
+        diagnosisRawStream.textContent = "";
+    }
+
+    function appendDiagnosisRaw(text) {
+        diagnosisRawStream.textContent += text;
+        diagnosisRawStream.scrollTop = diagnosisRawStream.scrollHeight;
+    }
+
+    function appendDiagnosisEventCard(eventData) {
+        diagnosisEventCount += 1;
+        diagnosisEventCounter.textContent = "事件数：" + diagnosisEventCount;
+
+        const card = document.createElement("div");
+        card.className = "event-card" + (eventData.type === "error" ? " failed" : "");
+
+        const type = document.createElement("div");
+        type.className = "event-type";
+        type.textContent = eventData.type || "unknown";
+
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(eventData, null, 2);
+
+        card.appendChild(type);
+        card.appendChild(pre);
+        diagnosisEventList.prepend(card);
+    }
+
+    async function readDiagnosisSseStream(response) {
+        if (!response.body) {
+            const text = await response.text();
+            appendDiagnosisRaw(text);
+            return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+                if (buffer.trim()) {
+                    appendDiagnosisRaw(buffer);
+                }
+                break;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+            appendDiagnosisRaw(chunk);
+            buffer += chunk;
+
+            const events = buffer.split("\n\n");
+            buffer = events.pop() || "";
+
+            events.forEach((block) => {
+                const dataLines = block
+                    .split("\n")
+                    .filter((line) => line.startsWith("data:"))
+                    .map((line) => line.replace(/^data:\s*/, ""))
+                    .join("\n");
+
+                if (!dataLines) {
+                    return;
+                }
+
+                try {
+                    const eventData = JSON.parse(dataLines);
+                    appendDiagnosisEventCard(eventData);
+                } catch (error) {
+                    appendDiagnosisEventCard({
+                        type: "raw",
+                        content: dataLines
+                    });
+                }
+            });
+        }
+    }
+
+    async function runDiagnosis() {
+        const payload = parseDiagnosisPayload();
+        diagnosisController = new AbortController();
+        resetDiagnosisOutput();
+        setDiagnosisStatus("请求中");
+        runDiagnosisButton.disabled = true;
+        stopDiagnosisButton.disabled = false;
+        updateSharedAlertId(payload.alert_id || "");
+
+        try {
+            const response = await fetch("/api/ai/diagnosis/analyze", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload),
+                signal: diagnosisController.signal
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                appendDiagnosisRaw(text);
+                appendDiagnosisEventCard({
+                    type: "error",
+                    status: response.status,
+                    content: text || "请求失败"
+                });
+                setDiagnosisStatus("请求失败 " + response.status);
+                return;
+            }
+
+            await readDiagnosisSseStream(response);
+            setDiagnosisStatus("已完成");
+        } catch (error) {
+            if (error.name === "AbortError") {
+                appendDiagnosisEventCard({
+                    type: "error",
+                    content: "请求已被手动停止"
+                });
+                setDiagnosisStatus("已停止");
+            } else {
+                appendDiagnosisEventCard({
+                    type: "error",
+                    content: error.message || "请求异常"
+                });
+                setDiagnosisStatus("异常中断");
+            }
+        } finally {
+            diagnosisController = null;
+            runDiagnosisButton.disabled = false;
+            stopDiagnosisButton.disabled = true;
+        }
+    }
+
+    runDiagnosisButton.addEventListener("click", runDiagnosis);
+
+    stopDiagnosisButton.addEventListener("click", () => {
+        if (diagnosisController) {
+            diagnosisController.abort();
+        }
+    });
+
+    resetDiagnosisButton.addEventListener("click", () => {
+        setDiagnosisPayload(defaultDiagnosisPayload);
+        resetDiagnosisOutput();
+        setDiagnosisStatus("空闲");
+        diagnosisRawStream.textContent = "等待诊断请求…";
+    });
+
+    formatDiagnosisButton.addEventListener("click", () => {
+        const payload = parseDiagnosisPayload();
+        setDiagnosisPayload(payload);
+    });
+
+    syncAlertButton.addEventListener("click", () => {
+        const payload = parseDiagnosisPayload();
+        payload.alert_id = "debug-alert-" + Date.now();
+        setDiagnosisPayload(payload);
+    });
+
+    diagnosisPayloadEl.addEventListener("input", () => {
+        try {
+            const payload = JSON.parse(diagnosisPayloadEl.value);
+            updateSharedAlertId(payload.alert_id || "");
+        } catch (error) {
+            updateSharedAlertId("JSON 待修正");
+        }
+    });
+
+    resetKnowledgeView();
+    setDiagnosisPayload(defaultDiagnosisPayload);
+    setDiagnosisStatus("空闲");
+    diagnosisRawStream.textContent = "等待诊断请求…";
+</script>
+</body>
+</html>

@@ -7,7 +7,6 @@ import com.kira.server.controller.knowledge.dto.FileRecordDTO;
 import com.kira.server.enums.ImportStatus;
 import com.kira.server.exception.DuplicateFileException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.multipart.MultipartFile;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.exception.TikaException;
 import org.apache.tika.metadata.Metadata;
@@ -28,8 +27,6 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-
-import org.springframework.web.reactive.function.client.WebClient;
 import org.xml.sax.SAXException;
 
 /**
@@ -47,7 +44,6 @@ public class KnowledgeImportService {
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final FileStorageService fileStorageService;
-    private final WebClient agentWebClient;
 
     private static final String STREAM_NAME = "stream:knowledge_import";
     private static final String STATUS_PREFIX = "knowledge:status:";
@@ -114,78 +110,6 @@ public class KnowledgeImportService {
         } catch (Exception e) {
             log.error("文件处理失败: docId={}, error={}", docId, e.getMessage(), e);
             updateStatus(docId, ImportStatus.FAILED);
-        }
-    }
-
-    /**
-     * 同步处理文件，解析并直接调用 Agent API
-     */
-    public void processFileSync(String docId, MultipartFile file, String category, String subcategory) {
-        try {
-            String filename = file.getOriginalFilename();
-            log.info("开始同步处理文件: docId={}, filename={}", docId, filename);
-
-            // 1. 上传文件到 OSS（包含去重检查）
-            FileRecordDTO fileRecord = fileStorageService.uploadAndCheckDuplicate(
-                    file, category, subcategory
-            );
-
-            // 2. 更新状态：PARSING
-            updateStatus(docId, ImportStatus.PARSING);
-
-            // 3. 读取文件内容用于解析
-            byte[] fileBytes = file.getBytes();
-            DocumentContent content = parseContent(new ByteArrayInputStream(fileBytes), filename);
-            log.info("Tika 解析完成: docId={}, contentLength={}", docId, content.getContentLength());
-
-            // 4. 构建元数据
-            DocumentMetadata metadata = DocumentMetadata.builder()
-                    .originalFilename(filename)
-                    .contentType(file.getContentType())
-                    .fileSize(file.getSize())
-                    .createdAt(LocalDateTime.now())
-                    .category(category)
-                    .subcategory(subcategory)
-                    .ossPath(fileRecord.getOssPath())
-                    .fileRecordId(fileRecord.getId())
-                    .build();
-
-            // 5. 构建请求到 Agent 的数据
-            Map<String, Object> requestData = new HashMap<>();
-            requestData.put("doc_id", docId);
-            requestData.put("title", content.getTitle() != null ? content.getTitle() : "Untitled");
-            requestData.put("category", category != null ? category : "default");
-            requestData.put("subcategory", subcategory);
-            requestData.put("content", content.getContent());
-            requestData.put("metadata", metadata);
-
-            // 6. 调用 Agent 端点同步切片和向量化
-            log.info("调用 Agent API 开始切片入库: docId={}", docId);
-            try {
-                String response = agentWebClient.post()
-                        .uri("/api/v1/diagnosis/knowledge/documents")
-                        .bodyValue(requestData)
-                        .retrieve()
-                        .bodyToMono(String.class)
-                        .block(); // 阻塞等待同步响应
-                log.info("Agent 知识库切片成功: docId={}, response={}", docId, response);
-                
-                // 7. 更新状态：COMPLETED
-                updateStatus(docId, ImportStatus.COMPLETED);
-            } catch (Exception e) {
-                log.error("调用 Agent API 失败: docId={}, error={}", docId, e.getMessage(), e);
-                updateStatus(docId, ImportStatus.FAILED);
-                throw new RuntimeException("Agent 切片处理失败: " + e.getMessage(), e);
-            }
-
-        } catch (DuplicateFileException e) {
-            log.warn("文件重复: docId={}, error={}", docId, e.getMessage());
-            updateStatus(docId, ImportStatus.DUPLICATE);
-            throw e; // 继续向上抛出由 Controller 捕获
-        } catch (Exception e) {
-            log.error("文件同步处理失败: docId={}, error={}", docId, e.getMessage(), e);
-            updateStatus(docId, ImportStatus.FAILED);
-            throw new RuntimeException("文件处理失败: " + e.getMessage(), e);
         }
     }
 
