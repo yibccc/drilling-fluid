@@ -31,7 +31,10 @@ async def pg_repo():
 
     # 连接到默认数据库创建测试数据库
     temp_dsn = "postgresql://root:root@localhost:5432/postgres"
-    conn = await asyncpg.connect(temp_dsn)
+    try:
+        conn = await asyncpg.connect(temp_dsn)
+    except (OSError, PermissionError, asyncpg.PostgresError) as exc:
+        pytest.skip(f"PostgreSQL 不可用，跳过依赖数据库的测试: {exc}")
     await conn.execute(f"DROP DATABASE IF EXISTS {test_db}")
     await conn.execute(f"CREATE DATABASE {test_db}")
     await conn.close()
@@ -95,7 +98,10 @@ async def diagnosis_pg_pool():
 
     # 使用 root 用户
     temp_dsn = "postgresql://root:root@localhost:5432/postgres"
-    conn = await asyncpg.connect(temp_dsn)
+    try:
+        conn = await asyncpg.connect(temp_dsn)
+    except (OSError, PermissionError, asyncpg.PostgresError) as exc:
+        pytest.skip(f"PostgreSQL 不可用，跳过诊断集成测试: {exc}")
     await conn.execute(f"DROP DATABASE IF EXISTS {test_db}")
     await conn.execute(f"CREATE DATABASE {test_db}")
 
@@ -118,7 +124,7 @@ async def diagnosis_pg_pool():
     async with pool.acquire() as conn:
         # 读取 schema 文件
         import os
-        schema_path = os.path.join(os.path.dirname(__file__), "../docs/sql/diagnosis_schema.sql")
+        schema_path = os.path.join(os.path.dirname(__file__), "../docs/sql/schema.sql")
         if os.path.exists(schema_path):
             with open(schema_path) as f:
                 schema_sql = f.read()
@@ -161,7 +167,6 @@ async def diagnosis_pg_pool():
                     alert_threshold JSONB,
                     samples JSONB NOT NULL,
                     context JSONB,
-                    callback_url TEXT,
                     status VARCHAR(20) DEFAULT 'PENDING',
                     started_at TIMESTAMPTZ,
                     completed_at TIMESTAMPTZ,

@@ -1,557 +1,563 @@
-# 知识库导入消费者 - 详细设计文档
+# 知识库导入消费者详细设计
 
-> **实现状态**: 已完成
-> **最后更新**: 2026-02-27
-> **版本**: v1.1
+> 版本: 2.1
+> 更新日期: 2026-03-13 20:23:49 +08:00
+> 对应实现:
+> - `src/services/knowledge_import_consumer.py`
+> - `src/services/vector_store_service.py`
+> - `src/agents/diagnosis_middleware.py`
+> - `src/api/main.py`
 
-## 实现状态概览
+> 相关文档:
+> - [AI诊断与RAG文档索引.md](/Users/kirayang/IdeaProjects/drilling-fluid/yibccc-langchain/docs/detailed-design/AI诊断与RAG文档索引.md)
+> - [处置Agent详细设计.md](/Users/kirayang/IdeaProjects/drilling-fluid/yibccc-langchain/docs/detailed-design/处置Agent详细设计.md)
+> - [接口文档-每阶段汇总.md](/Users/kirayang/IdeaProjects/drilling-fluid/yibccc-langchain/docs/detailed-design/接口文档-每阶段汇总.md)
 
-| 模块 | 状态 | 说明 |
-|------|------|------|
-| Redis Stream 消费者 | ✅ 完成 | KnowledgeImportConsumer |
-| 父子分块策略 | ✅ 完成 | 3000字符父块 + 600字符子块 |
-| pgvector 向量存储 | ✅ 完成 | 原生格式，支持 cosine 距离 |
-| 状态同步 | ✅ 完成 | Redis 状态更新 |
-| 应用启动集成 | ✅ 完成 | lifespan 自动启动 |
-| 单元测试 | ✅ 完成 | 9 个测试用例 |
+## 1. 文档定位
 
----
+本文描述 `yibccc-langchain` 当前仍在运行的知识导入链路，以及它如何服务后续 RAG 检索。
 
-## 1. 功能定位
+这份文档重点回答三件事：
 
-本模块是知识库系统的 Agent 端导入消费者，负责：
+- SpringBoot 发送导入任务后，FastAPI 侧是怎么消费的
+- 文本是如何切分、写入 PGVector、再被诊断链路召回的
+- 当前实现的边界在哪里，后续如果扩展成多路召回或更强的幻觉治理，应该从哪一层演进
 
-- 从 Redis Stream 消费文档导入任务
-- 使用父子分块策略处理长文本
-- 调用 DashScope API 生成向量
-- 存储文档和分块到 PostgreSQL (pgvector)
-- 实时更新导入状态到 Redis
+以下旧口径已经移除，不再作为实现依据：
 
-## 2. 技术架构
+- 手工维护 `knowledge_documents` / `knowledge_chunks` 表
+- 先父块再对子块二次切分的双层父块算法说明
+- 自定义 SQL 向量检索语句
+- 通过业务数据库表记录导入状态
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Redis Stream                             │
-│                  stream:knowledge_import                        │
-│                   [生产者: SpringBoot]                            │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │ XREADGROUP
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     FastAPI (Agent 服务)                         │
-│                                                                     │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │        KnowledgeImportConsumer                             │  │
-│  │  ┌─────────────┐    ┌──────────────┐    ┌─────────────┐  │  │
-│  │  │ 消息消费      │───▶│ 父子分块      │───▶│ 向量化        │  │  │
-│  │  │ XREADGROUP   │    │ Recursive    │    │ DashScope    │  │  │
-│  │  │              │    │ TextSplitter │    │ Embeddings   │  │  │
-│  │  └─────────────┘    └──────────────┘    └─────────────┘  │  │
-│  │                                                   │          │  │
-│  │                                              ┌───────▼───────│  │
-│  │                                              │ Knowledge     │  │
-│  │                                              │ Repository    │  │
-│  │                                              │ (create_chunks│  │
-│  │                                              │  + vector_     │  │
-│  │                                              │   search)      │  │
-│  │                                              └───────┬───────│  │
-│  └──────────────────────────────────────────────┼───────┼───────┘  │
-│                                                 │       │          │
-│                                          ┌───────▼───────▼──────┐   │
-│                                          │ PostgreSQL + pgvector│   │
-│                                          │ knowledge_documents  │   │
-│                                          │ knowledge_chunks     │   │
-│                                          └──────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+当前实现已经统一为：
 
-## 3. 分块策略
+- SpringBoot 产生日志导入消息到 Redis Stream
+- FastAPI 侧 `KnowledgeImportConsumer` 消费消息
+- 使用 `VectorStoreService` 调用 LangChain PGVector 异步写入向量库
+- 导入状态只写入 Redis 键，不写入业务表
+- 后续 RAG 检索通过 `RetrievalMiddleware` 从 PGVector 读取知识上下文
 
-### 3.1 父子分块
+## 2. 背景与设计目标
 
-**目的**: 保留文档结构的同时支持细粒度检索
+### 2.1 背景
 
-```
-原始文档 (5000 字)
-    │
-    ├─ 段落分割 (\n\n)
-    │
-    ├─ 父块 1 (2500 字)
-    │   ├─ 子块 1-1 (600 字, overlap 100)
-    │   ├─ 子块 1-2 (600 字, overlap 100)
-    │   └─ ...
-    │
-    └─ 父块 2 (2500 字)
-        ├─ 子块 2-1 (600 字, overlap 100)
-        └─ ...
+知识导入链路的目标不是简单“把文件存起来”，而是把业务文档转成可检索、可注入、可在诊断过程中实时使用的知识单元。
+
+在当前项目里，知识导入和知识使用是分开的：
+
+- 导入阶段：把文档变成可检索向量数据
+- 使用阶段：在诊断请求到来时进行语义检索和上下文注入
+
+### 2.2 设计目标
+
+当前实现主要围绕下面几个目标设计：
+
+- 让导入和在线诊断解耦，避免上传时阻塞业务请求
+- 让知识数据可以被 RAG 检索直接消费
+- 让知识文档具备文档级和分块级两种访问视角
+- 让导入状态可观测、可重试、可排障
+- 避免维护一套自定义向量表结构，降低存储层复杂度
+
+## 3. 当前整体链路
+
+```text
+SpringBoot
+  -> Redis Stream: stream:knowledge_import
+  -> KnowledgeImportConsumer.start()
+  -> xreadgroup 消费消息
+  -> _process_import()
+     -> _update_import_status(CHUNKING)
+     -> _create_chunks() 文本切分
+     -> _update_import_status(EMBEDDING)
+     -> _embed_and_store_chunks()
+        -> 构造 1 个父文档 + N 个子分块
+        -> VectorStoreService.add_parent_child_documents()
+        -> LangChain PGVector 自动写入 langchain_pg_* 表
+     -> _update_import_status(COMPLETED)
+     -> xack
 ```
 
-### 3.2 参数配置
+如果从 RAG 的视角继续往下看，它最终会接到诊断链路中：
 
-| 层级 | 大小 | 重叠 | 说明 |
-|------|------|------|------|
-| 父分块 | 3000 字符 | 0 | 按段落分割 |
-| 子分块 | 600 字符 | 100 字符 | RecursiveCharacterTextSplitter |
+```text
+DiagnosisAgent
+  -> RetrievalMiddleware
+  -> similarity_search(query, filter={"chunk_type":"child", ...})
+  -> 取回子分块
+  -> 回查对应父文档
+  -> 拼装上下文
+  -> 注入系统消息给模型
+```
 
-### 3.3 分块代码
+这说明知识导入链路的输出不是终点，而是后续 RAG 检索的输入。
+
+## 4. 运行入口
+
+消费者在应用启动时由 `src/api/main.py` 的 `lifespan()` 自动启动：
 
 ```python
-def _create_parent_chunks(self, text: str) -> List[str]:
-    # 按双换行分段
-    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-
-    # 合并小段落，确保父块约 3000 字符
-    parent_chunks = []
-    current_chunk = ""
-
-    for para in paragraphs:
-        if len(current_chunk) + len(para) > 3000:
-            if current_chunk:
-                parent_chunks.append(current_chunk)
-            current_chunk = para
-        else:
-            current_chunk += "\n\n" + para if current_chunk else para
-
-    if current_chunk:
-        parent_chunks.append(current_chunk)
-
-    return parent_chunks
-```
-
-## 4. 向量存储
-
-### 4.1 pgvector 类型编解码器
-
-```python
-await conn.set_type_codec(
-    'vector',
-    encoder=lambda v: str(v),  # list[float] -> "[0.1, 0.2, ...]"
-    decoder=lambda v: [float(x) for x in v.strip('[]').split(',')],
-    schema='public',  # 注意: vector 类型在 public schema，不是 pg_catalog
-    format='text'
-)
-```
-
-**重要**: `vector` 类型在 PostgreSQL 的 `public` schema 中，不是 `pg_catalog`。
-
-### 4.2 批量 Embedding
-
-```python
-async def _embed_batch(self, texts: List[str]) -> List[List[float]]:
-    def sync_embed_batch():
-        return self.embedding_client.embed_documents(texts)
-
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, sync_embed_batch)
-```
-
-**性能优化**: 批量调用比单个调用快 3-5 倍
-
-### 4.3 向量搜索
-
-```sql
-SELECT DISTINCT ON (kd.doc_id)
-    kd.doc_id, kd.title, kd.content,
-    MIN(kc.embedding <-> $1) as distance
-FROM knowledge_documents kd
-JOIN knowledge_chunks kc ON kd.doc_id = kc.parent_doc_id
-WHERE kd.category = $2
-GROUP BY kd.doc_id, kd.title, kd.content
-ORDER BY distance
-LIMIT $3;
-```
-
-**距离函数**: `<->` (cosine 距离)
-
-## 5. 消费者配置
-
-### 5.1 Redis Stream 配置
-
-| 配置项 | 值 | 说明 |
-|--------|-----|------|
-| Stream 名称 | `stream:knowledge_import` | |
-| Consumer Group | `group:knowledge_workers` | |
-| Block 时间 | 1000 ms | 1 秒超时 |
-| Count | 1 | 每次取 1 条消息 |
-
-### 5.2 启动配置
-
-```python
-# 在 src/api/main.py 的 lifespan 中启动
 _knowledge_import_consumer = KnowledgeImportConsumer(pg_repo.pool)
 asyncio.create_task(_knowledge_import_consumer.start())
 ```
 
-## 6. 状态管理
+说明：
 
-### 6.1 状态流转
+- `pool` 参数目前仅为兼容启动签名保留，当前消费者本身不直接写 PostgreSQL 业务表
+- `start()` 内部会自行初始化 Redis 客户端和 embeddings 客户端
+- 如果 `running` 已经为 `True`，会直接返回，避免重复启动
+- `stop()` 会关闭内部 Redis 连接
 
-```
-PARSING → CHUNKING → EMBEDDING → COMPLETED
-    ↓
-  FAILED
-```
+## 5. Redis Stream 协议与消费模型
 
-### 6.2 Redis 键设计
+### 5.1 Stream 与消费者组
 
-| 键模式 | 说明 | 示例值 |
-|--------|------|--------|
-| `knowledge:status:{docId}` | 导入状态 | "COMPLETED" |
-| `knowledge:chunks:{docId}` | 分块数量 | "15" |
-| `knowledge:error:{docId}` | 错误信息 | "Tika 解析失败" |
-
-## 7. 数据库表结构
-
-### 7.1 knowledge_documents
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| doc_id | VARCHAR(100) | 文档唯一标识 |
-| title | VARCHAR(500) | 文档标题 |
-| category | VARCHAR(50) | 分类 |
-| subcategory | VARCHAR(100) | 子分类 |
-| content | TEXT | 完整内容 |
-| metadata | JSONB | 元数据 |
-| chunk_count | INT | 分块数量 |
-| import_status | VARCHAR(20) | 导入状态 |
-| created_at | TIMESTAMPTZ | 创建时间 |
-
-### 7.2 knowledge_chunks
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| parent_doc_id | VARCHAR(100) | 父文档 ID |
-| chunk_index | INT | 分块索引 |
-| content | TEXT | 分块内容 |
-| embedding | vector(1024) | 1024维向量 |
-| created_at | TIMESTAMPTZ | 创建时间 |
-
-## 8. 测试
-
-### 8.1 单元测试
-
-```bash
-cd yibccc-langchain
-
-# 向量存储测试
-uv run pytest tests/repositories/test_knowledge_repo_vector_fix.py -v
-
-# 消费者测试
-uv run pytest tests/services/test_knowledge_import_consumer.py -v
-```
-
-### 8.2 测试用例
-
-| 测试 | 说明 |
-|------|------|
-| `test_vector_storage_with_native_format` | pgvector 原生格式存储 |
-| `test_parent_chunk_creation` | 父分块创建 |
-| `test_parent_chunk_merging` | 小段落合并 |
-| `test_parent_chunk_size_limit` | 大小限制 |
-
-## 9. 错误处理
-
-### 9.1 异常类型
-
-| 异常 | 处理 |
-|------|------|
-| 文档不存在 | 记录日志，ACK 消息 |
-| Tika 解析失败 | 更新状态 FAILED，ACK 消息 |
-| Embedding API 失败 | 更新状态 FAILED，ACK 消息 |
-| 数据库连接错误 | 等待重试 |
-
-### 9.2 重试机制
-
-- 消费失败: ACK 消息（避免死循环）
-- 数据库错误: 依赖 asyncpg 连接池重试
-- API 错误: 快速失败，记录日志
-
-## 10. 性能指标
-
-| 指标 | 目标值 |
+| 项目 | 当前值 |
 |------|--------|
-| 文档解析速度 | > 10 MB/s |
-| 分块速度 | > 100 chunks/s |
-| Embedding 速度 | ~ 100 docs/min (批量) |
-| 向量存储速度 | > 1000 chunks/s |
+| Stream 名称 | `stream:knowledge_import` |
+| Consumer Group | `group:knowledge_workers` |
+| Consumer Name | `worker-{随机8位}` |
+| 读取方式 | `XREADGROUP` |
+| 批量大小 | `count=1` |
+| 阻塞时间 | `block=1000` 毫秒 |
 
-## 11. 文件清单
+这是一种典型的异步消费模型，优点是：
 
-| 文件路径 | 说明 |
-|---------|------|
-| `services/knowledge_import_consumer.py` | 导入消费者 |
-| `repositories/knowledge_repo.py` | 知识库仓储 |
-| `api/main.py` | 应用入口（集成启动） |
-| `tests/services/test_knowledge_import_consumer.py` | 消费者测试 |
-| `tests/repositories/test_knowledge_repo_vector_fix.py` | 向量测试 |
+- 上传链路和向量化链路隔离
+- 导入任务天然具备队列缓冲能力
+- 未来可以水平扩容多个 worker
 
----
+### 5.2 消息字段
 
-## 12. 调试与故障排查
+当前实现会从 Stream 消息中读取以下字段：
 
-> **更新日期**: 2026-02-27
-> **基于实际部署和调试经验**
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `doc_id` | 是 | 文档唯一标识 |
+| `title` | 是 | 文档标题 |
+| `content` | 是 | 文档全文 |
+| `category` | 否 | 文档分类，默认 `default` |
+| `oss_path` | 否 | OSS 路径 |
+| `file_record_id` | 否 | SpringBoot 文件记录 ID |
+| `metadata` | 否 | JSON 字符串，解析失败时回退为空对象 |
 
-### 12.1 常见问题
+这里有一个很重要的设计点：`oss_path`、`file_record_id` 和外部 `metadata` 最终都会进入向量文档的 metadata，而不是另存一张业务关系表。
 
-#### 问题 1: docId 提取为 null
+### 5.3 消费循环
 
-**症状**: 测试脚本显示 `文档 ID: null`，状态查询失败
+`_worker()` 的逻辑可以概括为：
 
-**原因**: API 响应使用 snake_case (`doc_id`)，但测试脚本使用 camelCase (`docId`)
+1. 阻塞读取消息
+2. 遍历 Stream 返回结果
+3. 对每条消息调用 `_process_import()`
+4. 如果处理过程中抛异常，则记录错误并 ACK，避免消息永久卡死
 
-**解决方案**:
-```bash
-# 修正测试脚本 (shs/test_knowledge_import.sh)
-DOC_ID=$(echo "${RESPONSE}" | jq -r '.data.doc_id')  # 使用 doc_id
+这个设计比较偏工程稳定性：
+
+- 不追求严格幂等重放
+- 优先保证队列不会因为坏消息被拖死
+- 把复杂重试收敛在单条任务内部处理
+
+## 6. 单条导入任务处理流程
+
+### 6.1 参数解码
+
+`_process_import()` 首先会从 Redis 原始字节字段中解码出：
+
+- `doc_id`
+- `title`
+- `content`
+- `category`
+- `oss_path`
+- `file_record_id`
+- `metadata`
+
+其中 `metadata` 会尝试按 JSON 解析，如果解析失败则回退为空对象。
+
+### 6.2 状态推进
+
+当前单条任务状态流转如下：
+
+```text
+CHUNKING -> EMBEDDING -> COMPLETED
+                    -> RETRYING
+                    -> FAILED
 ```
 
-#### 问题 2: 消费者无日志输出
+对应 Redis 键如下：
 
-**症状**: Python 服务运行但看不到任何消费者日志
+| 键模式 | 说明 |
+|--------|------|
+| `knowledge:status:{doc_id}` | 当前状态 |
+| `knowledge:chunks:{doc_id}` | 最终分块数 |
+| `knowledge:error:{doc_id}` | 最后一次错误信息 |
 
-**原因**: Python `logging` 模块未配置
+### 6.3 重试策略
 
-**解决方案**: 在 `main.py` 中添加日志配置:
+当前内置重试参数：
+
+- 最大重试次数：`MAX_RETRIES = 3`
+- 重试退避：`RETRY_DELAY_SECONDS = 0.1`，按次数递增
+
+重试仅包裹“向量化并存储”阶段，而不是整个消费循环。
+
+这么做的好处是：
+
+- 文本切分错误一般是确定性错误，不必无限重试
+- 网络抖动、向量服务抖动更适合做快速重试
+- 整体模型更容易排障
+
+### 6.4 ACK 策略
+
+- 成功完成导入后 ACK
+- 单条消息处理异常时，记录日志并 ACK，避免重复处理
+- `_process_import()` 内部的最后一次失败也会 ACK
+
+这意味着当前设计更偏“至少尝试 + 最终释放队列”，而不是“绝不丢消息”的严格事务队列模型。
+
+## 7. 分块策略
+
+### 7.1 当前分块实现
+
+`_create_chunks()` 不再维护“父块 3000 字符 + 子块 600 字符”的双层规则，而是直接调用 `create_text_splitter()` 生成基础分块：
+
 ```python
-import logging
-
-def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(levelname)s - %(name)s - %(message)s'
-    )
-    uvicorn.run(...)
+splitter = create_text_splitter()
+texts = splitter.split_text(text)
 ```
 
-#### 问题 3: 状态卡在 QUEUED
+每个基础分块会生成如下元信息：
 
-**症状**: 导入状态始终为 QUEUED，无 Python 处理日志
+| 字段 | 说明 |
+|------|------|
+| `text` | 分块正文 |
+| `page` | 当前固定为 `1` |
+| `position` | 分块顺序，从 `0` 开始 |
 
-**原因**: Java 和 Python 连接到不同的 Redis 实例
+### 7.2 为什么这样切
 
-**解决方案**: 确保两边使用相同的 Redis 配置:
+当前分块策略的核心目标不是“最大化还原原文结构”，而是：
 
-**Java** (`application-dev.yml`):
-```yaml
-sky:
-  redis:
-    host: localhost
-    port: 6379
-    password: root
-    database: 0
-```
+- 让检索粒度足够细
+- 让 embedding 文本长度受控
+- 让后续父文档回查仍然保留全局语义
 
-**Python** (`.env`):
-```bash
-REDIS_URL=redis://:root@localhost:6379
-REDIS_DB=0
-```
+这是一个“导入阶段切细，检索阶段回大”的思路。
 
-#### 问题 4: `TypeError: object list can't be used in 'await' expression`
+## 8. Parent-Child 存储模型
 
-**症状**: 消费者处理时报错
+虽然切分时不再单独构造“多个父块”，但写向量库时仍会组织成：
 
-**原因**: `_create_chunks` 是同步方法，但代码错误地使用了 `await`
+- 1 个父文档：全文拼接结果，`chunk_type=parent`
+- N 个子分块：基础分块列表，`chunk_type=child`
 
-**解决方案**:
+### 8.1 父文档 metadata
+
+| 字段 | 示例 |
+|------|------|
+| `chunk_id` | `DOC001_parent` |
+| `doc_id` | `DOC001` |
+| `title` | 文档标题 |
+| `category` | 文档分类 |
+| `chunk_type` | `parent` |
+| `created_at` | UTC ISO 时间 |
+
+### 8.2 子分块 metadata
+
+| 字段 | 示例 |
+|------|------|
+| `chunk_id` | `DOC001_parent_child_0` |
+| `parent_chunk_id` | `DOC001_parent` |
+| `doc_id` | `DOC001` |
+| `title` | 文档标题 |
+| `category` | 文档分类 |
+| `position` | 0, 1, 2... |
+| `chunk_type` | `child` |
+| `created_at` | UTC ISO 时间 |
+
+`oss_path`、`file_record_id` 和外部 `metadata` 会被合并进父子文档的 metadata。
+
+### 8.3 为什么要有父子关系
+
+这是当前实现和“只存碎片”方案最大的区别。
+
+子分块的价值：
+
+- 适合语义检索
+- 相似度更精细
+- 更容易命中局部知识点
+
+父文档的价值：
+
+- 提供更完整上下文
+- 避免模型只拿到一句零散结论
+- 减少因碎片化导致的理解偏差
+
+后续 `RetrievalMiddleware` 的做法正是：
+
+- 先检索子分块
+- 再回查父文档
+- 最终把父文档注入模型
+
+这是一种比较常见、也比较稳妥的 Parent-Child RAG 模式。
+
+## 9. 向量库实现
+
+`VectorStoreService` 使用 LangChain 官方 PGVector 集成：
+
 ```python
-# 修正前
-all_chunks = await self._create_chunks(content)
-
-# 修正后
-all_chunks = self._create_chunks(content)  # 移除 await
-```
-
-#### 问题 5: `ValueError: unknown type: pg_catalog.vector`
-
-**症状**: 向量存储失败，asyncpg 无法识别 vector 类型
-
-**原因**: `vector` 类型在 `public` schema，不是 `pg_catalog`
-
-**解决方案**:
-1. 确保 pgvector 扩展已安装:
-```bash
-docker exec -i pgvector psql -U postgres -d langchain_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
-```
-
-2. 验证类型位置:
-```sql
-SELECT typname, typnamespace::regnamespace FROM pg_type WHERE typname = 'vector';
--- 应返回: vector | public
-```
-
-3. 修正编解码器配置:
-```python
-await conn.set_type_codec(
-    'vector',
-    encoder=lambda v: str(v),
-    decoder=lambda v: [float(x) for x in v.strip('[]').split(',')],
-    schema='public',  # 使用 public 而非 pg_catalog
-    format='text'
+self.vector_store = PGVector(
+    embeddings=self.embeddings,
+    collection_name="knowledge_docs",
+    connection=connection_string,
+    use_jsonb=True,
+    async_mode=True,
 )
 ```
 
-### 12.2 诊断检查清单
+### 9.1 当前提供的能力
 
-部署前检查:
+`VectorStoreService` 当前暴露的核心方法包括：
 
-- [ ] PostgreSQL 安装了 pgvector 扩展
-- [ ] Java 和 Python 使用相同的 Redis 配置
-- [ ] Python 日志已正确配置
-- [ ] 测试脚本使用正确的字段名 (`doc_id`)
-- [ ] 数据库表结构已创建 (knowledge_documents, knowledge_chunks)
+- `add_documents()`
+- `similarity_search()`
+- `add_parent_child_documents()`
+- `query_by_parent_chunk()`
+- `query_by_doc_id()`
+- `get_document_by_chunk_id()`
+- `delete_by_doc_id()`
 
-运行时检查:
+### 9.2 当前结论
 
-- [ ] Python 服务启动日志包含 "KnowledgeImportConsumer started"
-- [ ] Python 服务启动日志包含 "Worker started as worker-xxx"
-- [ ] Java 日志显示 "已发送知识库导入消息"
-- [ ] Redis 中存在 `stream:knowledge_import` 流
+- 业务代码不再手写 `knowledge_documents` / `knowledge_chunks` 建表 SQL
+- 实际持久化表由 LangChain PGVector 自动维护
+- 当前数据库口径应以 `langchain_pg_collection`、`langchain_pg_embedding` 为准
+- 检索依赖 metadata 过滤，例如 `doc_id`、`chunk_type`、`parent_chunk_id`
 
-### 12.3 测试脚本
+## 10. 与诊断 RAG 的关系
 
-完整的测试脚本 (`shs/test_knowledge_import.sh`):
+这部分是最容易在项目里被忽略、但面试时最值得讲清楚的地方。
 
-```bash
-#!/bin/bash
-BASE_URL="http://localhost:18080"
-TEST_FILE="/path/to/test.txt"
+### 10.1 当前 RAG 检索路径
 
-echo "=== 知识库文件导入测试 ==="
+当前诊断链路中的 RAG 是这样工作的：
 
-# 1. 单文件上传
-echo "1. 测试单文件上传..."
-RESPONSE=$(curl -X POST "${BASE_URL}/api/knowledge/upload" \
-  -F "file=@${TEST_FILE}" \
-  -F "category=nature" \
-  -F "subcategory=landscape")
+1. `DiagnosisAgent` 收到请求
+2. `RetrievalMiddleware.abefore_model()` 在模型调用前拦截
+3. 从状态中提取过滤条件，例如 `category`
+4. 强制补充 `chunk_type=child`，只检索子分块
+5. 用 `similarity_search(query, k=5, filter=child_filter)` 做向量召回
+6. 根据 `parent_chunk_id` 回查父文档
+7. 把父文档内容拼成 `SystemMessage` 注入模型
 
-echo "响应: ${RESPONSE}"
+### 10.2 这套设计的好处
 
-# 注意: 使用 doc_id (snake_case) 不是 docId
-DOC_ID=$(echo "${RESPONSE}" | jq -r '.data.doc_id')
-echo "文档 ID: ${DOC_ID}"
+- 召回阶段足够细：用子分块做匹配
+- 注入阶段足够全：用父文档补上下文
+- metadata 过滤简单直观：按 `category`、`doc_id`、`chunk_type` 控制范围
+- 与导入链路天然衔接：导入阶段已经把父子关系准备好了
 
-# 2. 轮询状态
-echo "2. 查询文档状态..."
-for i in {1..10}; do
-  STATUS=$(curl -s "${BASE_URL}/api/knowledge/documents/${DOC_ID}/status")
-  IMPORT_STATUS=$(echo "${STATUS}" | jq -r '.data.importStatus')
-  echo "第 ${i} 次: ${IMPORT_STATUS}"
+### 10.3 当前不是多路召回
 
-  if [ "${IMPORT_STATUS}" = "COMPLETED" ] || [ "${IMPORT_STATUS}" = "FAILED" ]; then
-    break
-  fi
-  sleep 3
-done
+这一点要特别明确：
 
-echo "=== 测试完成 ==="
+- 当前实现是单路向量召回
+- 还没有 BM25、关键词召回、规则召回、图谱召回等并行通道
+- 也还没有 rerank 层
+
+所以如果文档或面试里提到“多路召回”，应该说成“可演进方向”，不能说成当前已实现能力。
+
+## 11. 当前实现的优点
+
+### 11.1 导入与查询解耦
+
+上传和 embedding 不在一个同步请求里完成，系统更稳，也更容易扩容。
+
+### 11.2 父子分块兼顾粒度与上下文
+
+检索时命中更准，注入时上下文更完整，比单纯存全文或单纯存碎片都更平衡。
+
+### 11.3 存储层简单
+
+借助 LangChain PGVector 自动管理表结构，减少了自研表结构和迁移脚本负担。
+
+### 11.4 metadata 设计实用
+
+`doc_id`、`title`、`category`、`parent_chunk_id`、`oss_path`、`file_record_id` 这些字段，让后续删除、过滤、排障都更方便。
+
+## 12. 当前实现的局限
+
+### 12.1 还没有多路召回
+
+当前完全依赖单一向量召回，在这些场景下可能不够强：
+
+- 关键词非常明确但语义不明显
+- 业务术语缩写较多
+- 用户问题与文档写法存在明显表达偏差
+
+### 12.2 还没有 rerank
+
+当前直接拿相似度 TopK，再回查父文档，没有独立的精排阶段。
+
+### 12.3 空检索会走降级模式
+
+`RetrievalMiddleware` 在查不到结果时，会退化成“请基于你的专业知识进行分析”。
+
+这保证了服务可用，但也意味着：
+
+- 模型可能脱离知识库直接回答
+- 幻觉风险会显著上升
+- 对强事实性问题不够稳
+
+### 12.4 ACK 策略更偏工程吞吐
+
+当前消息最终都会 ACK，适合保持队列流动性，但不适合对“绝不丢任务”有极强要求的场景。
+
+## 13. 后续演进建议
+
+### 13.1 多路召回
+
+如果后续要增强 RAG，推荐从单路向量召回扩展到多路召回：
+
+- 向量召回：解决语义相似
+- BM25 / 关键词召回：解决术语精确匹配
+- 分类过滤召回：解决范围收缩
+- 规则召回：针对高优先级业务场景强制注入关键文档
+
+一个典型的多路召回链路可以是：
+
+```text
+query
+  -> 向量召回 topK1
+  -> BM25 召回 topK2
+  -> 规则召回 topK3
+  -> 合并去重
+  -> rerank
+  -> 回查父文档
+  -> 注入模型
 ```
 
-### 12.4 状态码参考
+### 13.2 幻觉治理
 
-| 状态 | 说明 | 位置 |
-|------|------|------|
-| PARSING | Java 正在解析文件 | Redis |
-| QUEUED | 已入队，等待 Python 处理 | Redis |
-| CHUNKING | Python 正在分块 | Redis |
-| EMBEDDING | 正在生成向量 | Redis |
-| COMPLETED | 导入完成 | Redis |
-| FAILED | 导入失败 | Redis |
-| UNKNOWN | 文档不存在或状态过期 | Redis |
+如果后续要重点治理 RAG 幻觉，可以从这些方面增强：
 
-### 12.5 调试端点
+- 没检索到知识时，限制模型自由发挥而不是完全放开
+- 在提示词里要求“结论必须引用知识上下文”
+- 在结果里显式返回引用来源
+- 对高风险问题增加规则校验或二次审核
+- 给前端区分“知识库支持回答”和“降级回答”
 
-FastAPI 提供的调试端点:
+### 13.3 观测性增强
 
-```bash
-# 健康检查
-curl http://localhost:8000/health
+后续可以补的可观测能力包括：
 
-# 消费者状态
-curl http://localhost:8000/debug/consumer
+- 导入耗时指标
+- 每个文档分块数统计
+- embedding 失败率
+- 检索命中率
+- 空检索率
+- 父文档回查成功率
 
-# 诊断服务状态
-curl http://localhost:8000/debug/diagnosis
+## 14. 对外接口影响
+
+当前知识库相关 HTTP 路由位于 `src/api/routes/diagnosis.py`：
+
+- `POST /api/v1/diagnosis/knowledge/search`
+- `DELETE /api/v1/diagnosis/knowledge/documents/{doc_id}`
+
+注意：
+
+- 历史上的同步文档写入接口 `POST /api/v1/diagnosis/knowledge/documents` 已移除
+- 路由测试也明确校验该接口返回 `404`
+
+## 15. 与旧文档的差异
+
+本次统一后的口径如下：
+
+- 不再维护 `knowledge_documents` / `knowledge_chunks` 表结构说明
+- 不再维护自定义 SQL 检索语句
+- 不再声称消费者直接写 PostgreSQL 业务文档表
+- 不再使用“父块 3000 / 子块 600 / overlap 100”作为当前实现描述
+- 把知识导入和后续诊断 RAG 的关系明确写进文档
+
+如果后续知识导入链路再次重构，请直接对照以下代码更新本文：
+
+- `src/services/knowledge_import_consumer.py`
+- `src/services/vector_store_service.py`
+- `src/agents/diagnosis_middleware.py`
+- `src/api/routes/diagnosis.py`
+
+## 16. 面试官可能会问的问题
+
+### 16.1 你们为什么要单独做一个知识导入消费者
+
+可以这样回答：
+
+```text
+因为上传文件和向量化处理都比较重，如果放在同步请求里会拖慢接口响应。
+我们把导入任务写到 Redis Stream，再由 FastAPI 的 KnowledgeImportConsumer 异步消费，
+这样上传链路和 embedding 链路就解耦了，系统吞吐和稳定性都会更好。
 ```
 
----
+### 16.2 你们为什么不自己维护 knowledge_documents 和 knowledge_chunks 表
 
-## 附录: 快速部署指南
+可以这样回答：
 
-### 1. 数据库准备
-
-```bash
-# 启动 pgvector Docker 容器
-docker run -d --name pgvector \
-  -p 5432:5432 \
-  -e POSTGRES_PASSWORD=root \
-  -e POSTGRES_DB=langchain_db \
-  pgvector/pgvector:pg17
-
-# 安装扩展
-docker exec -i pgvector psql -U postgres -d langchain_db \
-  -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-# 创建表 (执行 knowledge_import_schema.sql)
+```text
+因为当前已经切到 LangChain PGVector 方案，向量表和集合表都由框架自动管理。
+这样做的好处是减少自定义表结构和迁移成本，把精力集中在分块策略、metadata 设计和检索链路上。
 ```
 
-### 2. 配置文件
+### 16.3 你们当前 RAG 的召回方式是什么
 
-**Java** (`sky-server/src/main/resources/application-dev.yml`):
-```yaml
-sky:
-  redis:
-    host: localhost
-    port: 6379
-    password: root
-    database: 0
+可以这样回答：
+
+```text
+当前是单路向量召回，不是多路召回。
+具体做法是先检索 child chunk，再根据 parent_chunk_id 回查父文档，
+最后把父文档作为上下文注入模型。
+也就是说，召回粒度是子块，注入粒度是父文档。
 ```
 
-**Python** (`yibccc-langchain/.env`):
-```bash
-# Redis
-REDIS_URL=redis://:root@localhost:6379
-REDIS_DB=0
+### 16.4 如果面试官追问 RAG 多路召回，你怎么回答
 
-# PostgreSQL
-PG_HOST=localhost
-PG_PORT=5432
-PG_DATABASE=langchain_db
-PG_USER=postgres
-PG_PASSWORD=root
+可以这样回答：
 
-# Embedding (DashScope)
-DASHSCOPE_API_KEY=your_key_here
-EMBEDDING_MODEL=text-embedding-v3
+```text
+当前线上实现还是单路向量召回，但从架构上已经为多路召回留出了空间。
+如果要继续增强，我会把召回拆成向量召回、BM25 召回、规则召回三路，
+先各自拿 topK，再做 merge + rerank，最后仍然回查父文档注入模型。
+这样既能保留语义匹配能力，也能补齐术语精确匹配能力。
 ```
 
-### 3. 启动服务
+### 16.5 你们怎么降低 RAG 幻觉
 
-```bash
-# 1. 启动 Redis (本地)
-redis-server
+可以这样回答：
 
-# 2. 启动 Java Spring Boot
-cd sky-chuanqin/sky-server
-./mvnw spring-boot:run
-
-# 3. 启动 Python FastAPI
-cd yibccc-langchain
-uv run main.py
+```text
+我们现在已经做了两层约束。
+第一层是必须先走知识检索，再把检索结果注入模型，而不是直接裸问模型；
+第二层是用 parent-child 结构避免只给模型一小段碎片文本。
+但要坦诚说，当前空检索时仍然会降级到基于模型自身知识回答，所以幻觉并没有被彻底消灭。
+如果继续治理，我会加引用约束、结果来源返回、空检索限制回答和 rerank。
 ```
 
-### 4. 验证
+### 16.6 为什么要先检索子分块，再回查父文档
 
-```bash
-# 运行测试脚本
-cd shs
-sh test_knowledge_import.sh
+可以这样回答：
 
-# 检查数据库
-docker exec -i pgvector psql -U postgres -d langchain_db \
-  -c "SELECT doc_id, title, import_status FROM knowledge_documents;"
+```text
+因为子分块更适合做相似度匹配，粒度更细，命中率更高；
+但真正喂给模型时，只给子分块容易上下文不足，所以我们会根据 parent_chunk_id 把对应父文档找回来。
+这是一种兼顾检索精度和上下文完整性的做法。
+```
+
+### 16.7 这个知识导入设计的最大工程价值是什么
+
+可以这样回答：
+
+```text
+最大的价值是把文档上传、向量化存储和后续 RAG 检索串成了一条稳定闭环。
+导入阶段就把父子关系、metadata、分类信息准备好，
+后面的诊断链路才能低成本地做知识增强，而不是每次请求时临时拼凑上下文。
 ```

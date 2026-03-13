@@ -893,10 +893,6 @@ async def analyze(self, request: DiagnosisRequest) -> AsyncIterator[DiagnosisEve
             )
             await self.repo.update_task_status(task_id, "FAILED")
 
-        # 4. 发送回调
-        if request.callback_url:
-            # ... 现有代码 ...
-
     except Exception as e:
         logger.error(f"Diagnosis analysis failed: {e}")
         await self.repo.update_task_status(task_id, "FAILED")

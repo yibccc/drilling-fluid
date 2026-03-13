@@ -2,24 +2,20 @@
 """
 诊断服务
 
-整合诊断 Agent、RAG 服务和回调服务
+整合诊断 Agent 和结果持久化
 """
 
 import asyncio
 import logging
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 from src.agents.diagnosis_agent import DiagnosisAgent
-from src.services.callback_service import CallbackService
 from src.repositories.diagnosis_repo import DiagnosisRepository
 from src.models.diagnosis_schemas import (
     DiagnosisRequest,
     DiagnosisEvent,
     DiagnosisResult,
-    CallbackRequest,
 )
-from src.models.exceptions import DiagnosisError
-from src.config import settings
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -35,11 +31,9 @@ class DiagnosisService:
     def __init__(
         self,
         agent: DiagnosisAgent,
-        callback_service: CallbackService,
         repo: DiagnosisRepository
     ):
         self.agent = agent
-        self.callback_service = callback_service
         self.repo = repo
 
     async def initialize(self):
@@ -64,7 +58,6 @@ class DiagnosisService:
             await self.repo.create_task(request, status="PROCESSING")
 
             # 2. 执行 Agent 分析（带超时控制）
-            result: Optional[DiagnosisResult] = None
             event_count = 0
 
             try:
@@ -88,10 +81,9 @@ class DiagnosisService:
 
                         # 保存结果
                         if event.type == "result" and event.result:
-                            result = event.result
                             await self.repo.save_result(
                                 task_id,
-                                result
+                                event.result
                             )
 
                         # 完成
@@ -113,15 +105,6 @@ class DiagnosisService:
                 )
                 return
 
-            # 3. 发送回调（如果有回调地址）
-            if request.callback_url and result:
-                await self._send_callback(
-                    request.callback_url,
-                    task_id,
-                    request.well_id,
-                    result
-                )
-
         except Exception as e:
             logger.error(f"Diagnosis analysis failed: {e}")
             await self.repo.update_task_status(task_id, "FAILED")
@@ -130,27 +113,3 @@ class DiagnosisService:
                 error_code="DIAGNOSIS_FAILED",
                 message=str(e)
             )
-
-    async def _send_callback(
-        self,
-        callback_url: str,
-        task_id: str,
-        well_id: str,
-        result: DiagnosisResult
-    ):
-        """发送结果回调"""
-        callback_req = CallbackRequest(
-            task_id=task_id,
-            well_id=well_id,
-            status="SUCCESS",
-            completed_at=datetime.now(),
-            result=result
-        )
-
-        success = await self.callback_service.send_callback_safe(
-            callback_url,
-            callback_req
-        )
-
-        if not success:
-            logger.warning(f"Callback to {callback_url} failed, but result was saved")

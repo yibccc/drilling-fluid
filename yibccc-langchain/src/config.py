@@ -56,10 +56,6 @@ class Settings(BaseSettings):
     # LangChain PGVector 配置
     LANGCHAIN_CONNECTION_STRING: str = Field(default="", alias="LANGCHAIN_CONNECTION_STRING")
 
-    # SpringBoot 回调配置
-    springboot_callback_timeout: int = Field(default=30, alias="SPRINGBOOT_CALLBACK_TIMEOUT")
-    springboot_callback_retry_max: int = Field(default=3, alias="SPRINGBOOT_CALLBACK_RETRY_MAX")
-
     model_config = ConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
     @property

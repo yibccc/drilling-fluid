@@ -24,11 +24,6 @@ async def get_user_id(
     if INTERNAL_API_KEY and x_internal_api_key == INTERNAL_API_KEY:
         return "internal"  # 内部调用
 
-    # 开发环境调试：如果使用内部 API Key 但不匹配，也允许调试请求
-    if INTERNAL_API_KEY and not x_internal_api_key:
-        # 内部 API Key 已配置但请求没有发送，使用测试 key
-        return "dev-user"
-
     # 正常用户 API Key 验证
     if x_api_key and settings.validate_api_key(x_api_key):
         return f"user:{x_api_key[:8]}"

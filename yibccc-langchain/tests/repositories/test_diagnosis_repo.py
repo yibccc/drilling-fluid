@@ -39,6 +39,7 @@ def mock_pool():
 def sample_request():
     """测试诊断请求"""
     return DiagnosisRequest(
+        alert_id="ALERT-TEST-001",
         task_id="TASK-TEST-001",
         well_id="WELL-TEST",
         alert_type="DENSITY_HIGH",
@@ -318,44 +319,10 @@ class TestDiagnosisRepositoryIntegration:
     """集成测试（需要真实数据库）"""
 
     @pytest.fixture
-    async def real_repo(self, pg_pool):
+    async def real_repo(self, diagnosis_pg_pool):
         """使用真实数据库连接的仓储"""
-        # 注意：需要在 conftest 中提供 pg_pool fixture
-        # 或者使用现有的 pg_repo fixture
-        from src.config import settings
-        import asyncpg
-
-        pool = await asyncpg.create_pool(
-            host=settings.pg_host,
-            port=settings.pg_port,
-            user=settings.pg_user,
-            password=settings.pg_password,
-            database=settings.pg_database
-        )
-
-        # 确保表存在
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                CREATE TABLE IF NOT EXISTS diagnosis_tasks (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    task_id VARCHAR(100) UNIQUE NOT NULL,
-                    well_id VARCHAR(50) NOT NULL,
-                    alert_type VARCHAR(50) NOT NULL,
-                    alert_triggered_at TIMESTAMPTZ NOT NULL,
-                    alert_threshold JSONB,
-                    samples JSONB NOT NULL,
-                    context JSONB,
-                    callback_url TEXT,
-                    status VARCHAR(20) DEFAULT 'PENDING',
-                    started_at TIMESTAMPTZ,
-                    completed_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                );
-            """)
-
-        repo = DiagnosisRepository(pool)
+        repo = DiagnosisRepository(diagnosis_pg_pool)
         yield repo
-        await pool.close()
 
     @pytest.mark.asyncio
     async def test_create_and_get_task(self, real_repo, sample_request):
@@ -373,11 +340,12 @@ class TestDiagnosisRepositoryIntegration:
     async def test_save_and_get_result(self, real_repo, sample_result):
         """测试保存并获取结果"""
         # 先创建任务
-        await real_repo.create_task(sample_request())
+        request = sample_request()
+        await real_repo.create_task(request)
 
         # 保存结果
-        await real_repo.save_result("TASK-TEST-001", sample_result)
+        await real_repo.save_result(request.task_id, sample_result)
 
         # 获取结果
-        result = await real_repo.get_result("TASK-TEST-001")
+        result = await real_repo.get_result(request.task_id)
         assert result is not None

@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 class KnowledgeImportConsumer:
     """Knowledge Import Consumer"""
 
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 0.1
+
     def __init__(self, pool=None, redis_client: aioredis.Redis = None):
         """
         初始化消费者
@@ -131,44 +134,56 @@ class KnowledgeImportConsumer:
         except json.JSONDecodeError:
             metadata = {}
 
-        try:
-            logger.info(f"开始处理导入: docId={doc_id}")
+        logger.info(f"开始处理导入: docId={doc_id}")
 
-            # 1. 更新状态：CHUNKING
-            await self._update_import_status(doc_id, "CHUNKING")
+        # 1. 更新状态：CHUNKING
+        await self._update_import_status(doc_id, "CHUNKING")
 
-            # 2. 分块
-            all_chunks = self._create_chunks(content)
-            logger.info(f"文档分块完成: docId={doc_id}, chunks={len(all_chunks)}")
+        # 2. 分块
+        all_chunks = self._create_chunks(content)
+        logger.info(f"文档分块完成: docId={doc_id}, chunks={len(all_chunks)}")
 
-            # 3. 更新状态：EMBEDDING
-            await self._update_import_status(doc_id, "EMBEDDING")
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                # 3. 更新状态：EMBEDDING
+                await self._update_import_status(doc_id, "EMBEDDING")
 
-            # 4. 向量化并存储（Parent-Child 逻辑）
-            await self._embed_and_store_chunks(
-                doc_id=doc_id,
-                title=title,
-                category=category,
-                chunks=all_chunks,
-                base_metadata={
-                    "oss_path": oss_path,
-                    "file_record_id": file_record_id,
-                    **metadata
-                }
-            )
+                # 4. 向量化并存储（Parent-Child 逻辑）
+                await self._embed_and_store_chunks(
+                    doc_id=doc_id,
+                    title=title,
+                    category=category,
+                    chunks=all_chunks,
+                    base_metadata={
+                        "oss_path": oss_path,
+                        "file_record_id": file_record_id,
+                        **metadata
+                    }
+                )
 
-            # 5. 更新状态：COMPLETED
-            await self._update_import_status(doc_id, "COMPLETED", chunk_count=len(all_chunks))
+                # 5. 更新状态：COMPLETED
+                await self._update_import_status(doc_id, "COMPLETED", chunk_count=len(all_chunks))
 
-            # 6. ACK 消息
-            await self._redis_client.xack(self.stream_name, self.consumer_group, message_id)
+                # 6. ACK 消息
+                await self._redis_client.xack(self.stream_name, self.consumer_group, message_id)
 
-            logger.info(f"导入完成: docId={doc_id}, chunks={len(all_chunks)}")
+                logger.info(f"导入完成: docId={doc_id}, chunks={len(all_chunks)}")
+                return
 
-        except Exception as e:
-            logger.error(f"导入失败: docId={doc_id}, error={e}", exc_info=True)
-            await self._update_import_status(doc_id, "FAILED", error=str(e))
-            await self._redis_client.xack(self.stream_name, self.consumer_group, message_id)
+            except Exception as e:
+                logger.error(
+                    f"导入失败: docId={doc_id}, attempt={attempt}/{self.MAX_RETRIES}, error={e}",
+                    exc_info=True
+                )
+
+                if attempt < self.MAX_RETRIES:
+                    await self._update_import_status(doc_id, "RETRYING", error=str(e))
+                    await asyncio.sleep(self.RETRY_DELAY_SECONDS * attempt)
+                    continue
+
+                await self._update_import_status(doc_id, "FAILED", error=str(e))
+                await self._redis_client.xack(self.stream_name, self.consumer_group, message_id)
+                return
 
     def _create_chunks(self, text: str) -> List[Dict[str, Any]]:
         """使用 RecursiveCharacterTextSplitter 创建子分块"""

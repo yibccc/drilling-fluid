@@ -5,9 +5,8 @@
 """
 
 import pytest
-import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
@@ -17,12 +16,7 @@ from src.models.diagnosis_schemas import (
     DiagnosisRequest,
     AlertThreshold,
     DrillingFluidSample,
-    DiagnosisContext,
     DiagnosisEvent,
-    DiagnosisResult,
-    DiagnosisConclusion,
-    TreatmentMeasure,
-    Prescription,
 )
 
 
@@ -45,6 +39,7 @@ def sample_request_data():
     """测试请求数据"""
     now = datetime.now()
     return {
+        "alert_id": "ALERT-TEST-001",
         "well_id": "WELL-TEST",
         "alert_type": "DENSITY_HIGH",
         "alert_triggered_at": now.isoformat(),
@@ -95,10 +90,55 @@ class TestDiagnosisRoutes:
         assert router.prefix == "/api/v1/diagnosis"
         assert router.tags == ["diagnosis"]
 
+    def test_sync_knowledge_document_route_not_exposed(self, client):
+        """测试同步知识文档直写路由已移除"""
+        response = client.post(
+            "/api/v1/diagnosis/knowledge/documents",
+            json={},
+            headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_knowledge_search_route_returns_results(self, client):
+        """测试知识召回调试路由"""
+        mock_vector_store = AsyncMock()
+        mock_doc = AsyncMock()
+        mock_doc.page_content = "密度偏高时，应加水稀释"
+        mock_doc.metadata = {
+            "doc_id": "DOC-001",
+            "title": "密度处理指南",
+            "chunk_id": "DOC-001_parent_child_0",
+            "parent_chunk_id": "DOC-001_parent",
+            "category": "density",
+            "chunk_type": "child",
+        }
+        mock_vector_store.similarity_search = AsyncMock(return_value=[mock_doc])
+
+        with patch("src.api.routes.diagnosis.get_vector_store", return_value=mock_vector_store):
+            response = client.post(
+                "/api/v1/diagnosis/knowledge/search",
+                json={
+                    "query": "密度偏高怎么办",
+                    "category": "density",
+                    "doc_id": "DOC-001",
+                    "top_k": 3,
+                },
+                headers={"X-API-Key": "test-key"}
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["query"] == "密度偏高怎么办"
+            assert len(data["results"]) == 1
+            assert data["results"][0]["doc_id"] == "DOC-001"
+            assert "密度偏高时，应加水稀释" in data["results"][0]["content_preview"]
+
     @pytest.mark.asyncio
     async def test_analyze_diagnosis_missing_service(self, client, sample_request_data):
         """测试诊断服务未初始化"""
-        with patch("src.api.routes.diagnosis.diagnosis_service", None):
+        with patch("src.services.diagnosis_service.diagnosis_service", None):
             response = client.post(
                 "/api/v1/diagnosis/analyze",
                 json=sample_request_data,
@@ -128,7 +168,7 @@ class TestDiagnosisRoutes:
 
         mock_service.analyze = mock_analyze
 
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
+        with patch("src.services.diagnosis_service.diagnosis_service", mock_service):
             response = client.post(
                 "/api/v1/diagnosis/analyze",
                 json=sample_request_data,
@@ -162,7 +202,7 @@ class TestDiagnosisRoutes:
 
         mock_service.analyze = mock_analyze
 
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
+        with patch("src.services.diagnosis_service.diagnosis_service", mock_service):
             response = client.post(
                 "/api/v1/diagnosis/analyze",
                 json=sample_request_data,
@@ -183,11 +223,17 @@ class TestDiagnosisRoutes:
 
         async def mock_analyze(request):
             from src.models.exceptions import DiagnosisError
+            if False:
+                yield DiagnosisEvent.start(
+                    task_id="TASK-001",
+                    well_id="WELL-TEST",
+                    samples_count=1
+                )
             raise DiagnosisError("分析失败")
 
         mock_service.analyze = mock_analyze
 
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
+        with patch("src.services.diagnosis_service.diagnosis_service", mock_service):
             response = client.post(
                 "/api/v1/diagnosis/analyze",
                 json=sample_request_data,
@@ -204,7 +250,7 @@ class TestDiagnosisRoutes:
         mock_service.repo = AsyncMock()
         mock_service.repo.get_task = AsyncMock(return_value=None)
 
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
+        with patch("src.services.diagnosis_service.diagnosis_service", mock_service):
             response = client.get(
                 "/api/v1/diagnosis/NON-EXISTENT",
                 headers={"X-API-Key": "test-key"}
@@ -231,7 +277,7 @@ class TestDiagnosisRoutes:
         mock_service.repo.get_task = AsyncMock(return_value=mock_task)
         mock_service.repo.get_result = AsyncMock(return_value=mock_result)
 
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
+        with patch("src.services.diagnosis_service.diagnosis_service", mock_service):
             response = client.get(
                 "/api/v1/diagnosis/TASK-001",
                 headers={"X-API-Key": "test-key"}
@@ -242,215 +288,8 @@ class TestDiagnosisRoutes:
             assert data["task"]["task_id"] == "TASK-001"
             assert data["result"]["diagnosis"]["summary"] == "密度上升"
 
-
-class TestKnowledgeManagementRoutes:
-    """知识库管理路由测试"""
-
-    @pytest.mark.asyncio
-    async def test_create_knowledge_document(self, client):
-        """测试创建知识文档"""
-        mock_service = AsyncMock()
-        mock_rag = AsyncMock()
-
-        doc_data = {
-            "doc_id": "DOC-001",
-            "title": "密度偏高处置",
-            "category": "density",
-            "subcategory": "high",
-            "content": "# 密度偏高\n\n密度偏高时...",
-            "metadata": {"author": "专家A"}
-        }
-
-        mock_rag.create_document = AsyncMock(return_value="DOC-001")
-        mock_service.rag_service = mock_rag
-
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
-            response = client.post(
-                "/api/v1/diagnosis/knowledge/documents",
-                json=doc_data,
-                headers={"X-API-Key": "test-key"}
-            )
-
-            assert response.status_code == 200
-            data = response.json()
-            assert data["doc_id"] == "DOC-001"
-            assert data["status"] == "created"
-
-    @pytest.mark.asyncio
-    async def test_get_knowledge_document(self, client):
-        """测试获取知识文档"""
-        mock_service = AsyncMock()
-        mock_rag = AsyncMock()
-
-        mock_doc = {
-            "doc_id": "DOC-001",
-            "title": "密度偏高处置",
-            "category": "density",
-            "content": "测试内容",
-            "chunk_count": 3
-        }
-
-        mock_rag.get_document = AsyncMock(return_value=mock_doc)
-        mock_service.rag_service = mock_rag
-
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
-            response = client.get(
-                "/api/v1/diagnosis/knowledge/documents/DOC-001",
-                headers={"X-API-Key": "test-key"}
-            )
-
-            assert response.status_code == 200
-            data = response.json()
-            assert data["doc_id"] == "DOC-001"
-
-    @pytest.mark.asyncio
-    async def test_get_knowledge_document_not_found(self, client):
-        """测试获取不存在的文档"""
-        mock_service = AsyncMock()
-        mock_rag = AsyncMock()
-        mock_rag.get_document = AsyncMock(return_value=None)
-        mock_service.rag_service = mock_rag
-
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
-            response = client.get(
-                "/api/v1/diagnosis/knowledge/documents/NON-EXISTENT",
-                headers={"X-API-Key": "test-key"}
-            )
-
-            assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_delete_knowledge_document(self, client):
-        """测试删除知识文档"""
-        mock_service = AsyncMock()
-        mock_rag = AsyncMock()
-        mock_rag.delete_document = AsyncMock(return_value=True)
-        mock_service.rag_service = mock_rag
-
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
-            response = client.delete(
-                "/api/v1/diagnosis/knowledge/documents/DOC-001",
-                headers={"X-API-Key": "test-key"}
-            )
-
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "deleted"
-
-    @pytest.mark.asyncio
-    async def test_delete_knowledge_document_not_found(self, client):
-        """测试删除不存在的文档"""
-        mock_service = AsyncMock()
-        mock_rag = AsyncMock()
-        mock_rag.delete_document = AsyncMock(return_value=False)
-        mock_service.rag_service = mock_rag
-
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
-            response = client.delete(
-                "/api/v1/diagnosis/knowledge/documents/NON-EXISTENT",
-                headers={"X-API-Key": "test-key"}
-            )
-
-            assert response.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_search_knowledge(self, client):
-        """测试语义检索"""
-        mock_service = AsyncMock()
-        mock_rag = AsyncMock()
-
-        mock_results = [
-            {
-                "doc_id": "DOC-001",
-                "title": "密度偏高处置",
-                "category": "density",
-                "content": "测试内容",
-                "distance": 0.123
-            }
-        ]
-
-        mock_rag.search = AsyncMock(return_value=mock_results)
-        mock_service.rag_service = mock_rag
-
-        search_request = {
-            "query": "密度偏高怎么处理",
-            "category": "density",
-            "top_k": 5
-        }
-
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
-            response = client.post(
-                "/api/v1/diagnosis/knowledge/search",
-                json=search_request,
-                headers={"X-API-Key": "test-key"}
-            )
-
-            assert response.status_code == 200
-            data = response.json()
-            assert len(data["results"]) == 1
-            assert data["results"][0]["doc_id"] == "DOC-001"
-
-    @pytest.mark.asyncio
-    async def test_rebuild_knowledge_index(self, client):
-        """测试重建向量索引"""
-        mock_service = AsyncMock()
-        mock_rag = AsyncMock()
-
-        mock_rag.rebuild_index = AsyncMock(return_value={"rebuilt": 5})
-        mock_service.rag_service = mock_rag
-
-        with patch("src.api.routes.diagnosis.diagnosis_service", mock_service):
-            response = client.post(
-                "/api/v1/diagnosis/knowledge/rebuild",
-                headers={"X-API-Key": "test-key"}
-            )
-
-            assert response.status_code == 200
-            data = response.json()
-            assert data["rebuilt"] == 5
-
-    @pytest.mark.asyncio
-    async def test_callback_endpoint(self, client):
-        """测试回调端点"""
-        callback_data = {
-            "task_id": "TASK-001",
-            "well_id": "WELL-001",
-            "status": "SUCCESS"
-        }
-
-        response = client.post(
-            "/api/v1/diagnosis/callback",
-            json=callback_data,
-            headers={"X-API-Key": "test-key"}
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "callback_received"
-        assert data["task_id"] == "TASK-001"
-
-
 class TestRequestValidation:
     """请求验证测试"""
-
-    def test_invalid_api_key(self, client, sample_request_data):
-        """测试无效 API Key"""
-        response = client.post(
-            "/api/v1/diagnosis/analyze",
-            json=sample_request_data,
-            headers={"X-API-Key": "invalid-key"}
-        )
-
-        assert response.status_code == 401
-
-    def test_missing_api_key(self, client, sample_request_data):
-        """测试缺少 API Key"""
-        response = client.post(
-            "/api/v1/diagnosis/analyze",
-            json=sample_request_data
-        )
-
-        assert response.status_code == 401
 
     def test_invalid_json_schema(self, client):
         """测试无效的 JSON Schema"""

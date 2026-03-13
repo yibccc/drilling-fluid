@@ -43,7 +43,6 @@ async def lifespan(app: FastAPI):
 
     # 初始化 DiagnosisService
     from src.agents.diagnosis_agent import DiagnosisAgent
-    from src.services.callback_service import CallbackService
     from src.services.vector_store_service import VectorStoreService
     from src.repositories.diagnosis_repo import DiagnosisRepository
 
@@ -56,13 +55,11 @@ async def lifespan(app: FastAPI):
         checkpointer=None,
         vector_store_service=vector_store
     )
-    diagnosis_callback = CallbackService()
     diagnosis_repo = DiagnosisRepository(pg_repo.pool)
 
     # 设置全局 diagnosis_service
     diagnosis_service_module.diagnosis_service = DiagnosisService(
         agent=diagnosis_agent,
-        callback_service=diagnosis_callback,
         repo=diagnosis_repo
     )
     await diagnosis_service_module.diagnosis_service.initialize()

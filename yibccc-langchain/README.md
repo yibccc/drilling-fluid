@@ -66,8 +66,7 @@ createdb yibccc_agent
 psql yibccc_agent -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
 # 执行初始化脚本
-psql yibccc_agent < docs/sql/schema_v3.sql
-psql yibccc_agent < docs/sql/diagnosis_schema.sql
+psql yibccc_agent < docs/sql/schema.sql
 ```
 
 **注意**: 知识库向量存储由 LangChain PGVector 自动管理，首次使用时会自动创建 `langchain_pg_*` 表。

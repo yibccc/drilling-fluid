@@ -67,7 +67,6 @@ class DiagnosisRequest(BaseModel):
     alert_threshold: AlertThreshold = Field(..., description="阈值配置")
     samples: List[DrillingFluidSample] = Field(..., min_length=1, max_length=20, description="采样数据")
     context: Optional[DiagnosisContext] = Field(default_factory=DiagnosisContext, description="上下文信息")
-    callback_url: Optional[str] = Field(None, description="回调URL")
     stream: bool = Field(True, description="是否流式返回")
 
     @field_validator("samples")
@@ -198,31 +197,6 @@ class DiagnosisEvent(BaseModel):
         """创建错误事件"""
         return cls(type="error", task_id=task_id, error_code=error_code, content=message)
 
-
-# ========== 回调模型 ==========
-
-class CallbackRequest(BaseModel):
-    """回调请求（Agent 发送给 SpringBoot）"""
-    task_id: str
-    well_id: str
-    status: Literal["SUCCESS", "FAILED", "PARTIAL"]
-    completed_at: datetime
-    result: Optional[DiagnosisResult] = None
-    error: Optional[str] = None
-
-
-# ========== 知识库模型 ==========
-
-class KnowledgeDocumentCreate(BaseModel):
-    """创建知识文档请求"""
-    doc_id: str
-    title: str
-    category: str
-    subcategory: Optional[str] = None
-    content: str
-    metadata: Optional[Dict[str, Any]] = None
-
-
 class KnowledgeDocumentResponse(BaseModel):
     """知识文档响应"""
     id: str
@@ -239,5 +213,6 @@ class KnowledgeDocumentResponse(BaseModel):
 class KnowledgeSearchRequest(BaseModel):
     """知识检索请求"""
     query: str
+    doc_id: Optional[str] = None
     category: Optional[str] = None
     top_k: int = Field(default=5, ge=1, le=20)

@@ -400,82 +400,13 @@ public class ChatRequest {
 
 ## 诊断分析转发
 
-### Controller
+本章节不再作为 AI 诊断的现行对接说明。
 
-```java
-package com.yibccc.controller;
+诊断链路在多次联调后已经统一收口到：
+`/Users/kirayang/IdeaProjects/drilling-fluid/sky-chuanqin/docs/detailed-design/AI_DIAGNOSIS_CHAIN_DESIGN.md`
 
-import com.yibccc.model.diagnosis.DiagnosisRequest;
-import com.yibccc.service.SSEForwardService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
-
-@RestController
-@RequestMapping("/api/diagnosis")
-@RequiredArgsConstructor
-public class DiagnosisController {
-
-    private final SSEForwardService sseForwardService;
-
-    /**
-     * 诊断分析 - SSE 转发
-     */
-    @PostMapping(value = "/analyze", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> analyze(@RequestBody DiagnosisRequest request) {
-        log.info("Diagnosis request: wellId={}, alertType={}",
-                request.getWellId(), request.getAlertType());
-
-        return sseForwardService.forwardSSE("/api/v1/diagnosis/analyze", request);
-    }
-
-    /**
-     * 查询诊断结果
-     */
-    @GetMapping("/{taskId}")
-    public Flux<String> getResult(@PathVariable String taskId) {
-        return sseForwardService.forwardSSE("/api/v1/diagnosis/{taskId}", null);
-    }
-}
-```
-
-### 诊断请求模型
-
-```java
-package com.yibccc.model.diagnosis;
-
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
-import java.time.LocalDateTime;
-import java.util.List;
-
-@Data
-public class DiagnosisRequest {
-    @JsonProperty("well_id")
-    private String wellId;
-
-    @JsonProperty("alert_type")
-    private String alertType;
-
-    @JsonProperty("alert_triggered_at")
-    private LocalDateTime alertTriggeredAt;
-
-    @JsonProperty("alert_threshold")
-    private AlertThreshold alertThreshold;
-
-    private List<DrillingFluidSample> samples;
-
-    private DiagnosisContext context;
-
-    @JsonProperty("callback_url")
-    private String callbackUrl;
-
-    private Boolean stream = true;
-
-    // ... 内部类定义
-}
-```
+这里历史上保留过旧的 Controller 写法、旧的查询方式和过期 DTO 示例，
+请勿继续据此实现。
 
 ---
 

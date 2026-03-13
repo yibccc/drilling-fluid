@@ -19,8 +19,6 @@ from src.models.diagnosis_schemas import (
     Prescription,
     DiagnosisResult,
     DiagnosisEvent,
-    CallbackRequest,
-    KnowledgeDocumentCreate,
     KnowledgeDocumentResponse,
     KnowledgeSearchRequest,
 )
@@ -103,6 +101,7 @@ class TestDiagnosisRequest:
     def sample_request_data(self):
         """测试请求数据"""
         return {
+            "alert_id": "ALERT-001",
             "well_id": "WELL-001",
             "alert_type": "DENSITY_HIGH",
             "alert_triggered_at": datetime.now(),
@@ -392,48 +391,6 @@ class TestDiagnosisEvent:
         for event_type in valid_types:
             event = DiagnosisEvent(type=event_type, task_id="TASK-001")
             assert event.type == event_type
-
-
-class TestCallbackRequest:
-    """CallbackRequest 模型测试"""
-
-    def test_create_callback_request(self):
-        """测试创建回调请求"""
-        callback = CallbackRequest(
-            task_id="TASK-001",
-            well_id="WELL-001",
-            status="SUCCESS",
-            completed_at=datetime.now(),
-            result=DiagnosisResult(
-                diagnosis=DiagnosisConclusion(
-                    summary="测试",
-                    cause="测试",
-                    risk_level="LOW"
-                ),
-                measures=[],
-                prescription=Prescription()
-            )
-        )
-        assert callback.status == "SUCCESS"
-        assert callback.result is not None
-
-
-class TestKnowledgeDocumentCreate:
-    """KnowledgeDocumentCreate 模型测试"""
-
-    def test_create_document_request(self):
-        """测试创建知识文档请求"""
-        doc = KnowledgeDocumentCreate(
-            doc_id="DOC-001",
-            title="密度偏高处置措施",
-            category="density",
-            subcategory="high",
-            content="# 密度偏高处置\n\n...",
-            metadata={"author": "专家A", "version": "1.0"}
-        )
-        assert doc.doc_id == "DOC-001"
-        assert doc.category == "density"
-        assert doc.metadata["author"] == "专家A"
 
 
 class TestKnowledgeDocumentResponse:

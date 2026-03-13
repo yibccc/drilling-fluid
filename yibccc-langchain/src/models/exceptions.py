@@ -49,13 +49,6 @@ class RAGError(AppException):
         super().__init__(message, "RAG_ERROR")
 
 
-class CallbackError(AppException):
-    """回调失败"""
-
-    def __init__(self, message: str):
-        super().__init__(message, "CALLBACK_ERROR")
-
-
 class KnowledgeBaseError(AppException):
     """知识库操作失败"""
 

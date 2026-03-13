@@ -49,8 +49,8 @@ class DiagnosisRepository:
                 """
                 INSERT INTO diagnosis_tasks
                 (task_id, well_id, alert_type, alert_triggered_at,
-                 alert_threshold, samples, context, callback_url, status, started_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 alert_threshold, samples, context, status, started_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 """,
                 task_id,
                 request.well_id,
@@ -59,7 +59,6 @@ class DiagnosisRepository:
                 json.dumps(request.alert_threshold.model_dump()),
                 json.dumps([s.model_dump(mode='json') for s in request.samples]),
                 json.dumps(request.context.model_dump(mode='json') if request.context else {}),
-                request.callback_url,
                 status,
                 datetime.now()
             )

@@ -11,7 +11,7 @@ from typing import AsyncIterator, Dict, Any, Optional, List, Literal
 from pydantic import BaseModel, Field
 
 from langchain_openai import ChatOpenAI
-from langchain.messages import HumanMessage, AIMessage
+from langchain.messages import HumanMessage
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 
@@ -136,6 +136,7 @@ class DiagnosisAgent:
             system_prompt=system_prompt,
             checkpointer=self.checkpointer,
             response_format=self.response_format,
+            middleware=[self.retrieval_middleware] if self.retrieval_middleware else [],
         )
 
     async def analyze(
@@ -177,14 +178,13 @@ class DiagnosisAgent:
                 step="analyzing"
             )
 
-            # 使用 astream 获取流式更新（包含 LLM 思考和工具调用）
-            # 使用多个 stream_mode 同时获取 messages (LLM tokens) 和 updates (agent progress)
+            # 使用 astream 获取流式更新，并从 values 模式获取最终状态
             final_state = None
 
             async for stream_mode, data in self.agent.astream(
                 {"messages": [HumanMessage(content=prompt)]},
                 config=config,
-                stream_mode=["messages", "updates"],
+                stream_mode=["messages", "updates", "values"],
             ):
                 if stream_mode == "messages":
                     # messages 模式: (token_chunk, metadata)
@@ -236,24 +236,15 @@ class DiagnosisAgent:
                                             step="tool_result"
                                         )
 
-                    # 保存最后一个更新用于获取最终状态
+                elif stream_mode == "values":
                     final_state = data
 
-            # 获取最终状态和结构化输出
+            # 从流式输出中获取最终状态，避免重复调用模型
             if final_state is None:
-                state = await self.agent.ainvoke(
-                    {"messages": [HumanMessage(content=prompt)]},
-                    config=config,
-                )
-            else:
-                # 从最后的更新中获取状态
-                state = await self.agent.ainvoke(
-                    {"messages": [HumanMessage(content=prompt)]},
-                    config=config,
-                )
+                raise LLMError("流式执行结束后未能获取最终状态")
 
             # 从状态中获取结构化输出
-            structured_output: LLMDiagnosisOutput = state.get("structured_response")
+            structured_output: LLMDiagnosisOutput = final_state.get("structured_response")
 
             if not structured_output:
                 raise LLMError("未能获取结构化诊断结果")
@@ -289,6 +280,11 @@ class DiagnosisAgent:
             for s in request.samples[:5]  # 只显示前5条
         ])
 
+        context = request.context
+        current_depth = f"{context.current_depth}m" if context and context.current_depth is not None else "未提供"
+        formation_type = context.formation_type if context and context.formation_type else "未提供"
+        drilling_phase = context.drilling_phase if context and context.drilling_phase else "未提供"
+
         prompt = f"""请分析以下钻井液数据：
 
 **井号**: {request.well_id}
@@ -300,14 +296,14 @@ class DiagnosisAgent:
 {samples_text}
 
 **上下文**:
-- 当前深度: {request.context.current_depth}m
-- 岩性: {request.context.formation_type}
-- 钻井阶段: {request.context.drilling_phase}
+- 当前深度: {current_depth}
+- 岩性: {formation_type}
+- 钻井阶段: {drilling_phase}
 
 请执行以下分析：
 1. 趋势分析：使用 analyze_trend 工具分析主要参数趋势
-2. 知识检索：使用 search_knowledge 检索相关处置措施
-3. 生成配药方案：使用 format_prescription 生成具体方案
+2. 知识增强：结合系统自动注入的知识库上下文分析原因和处置措施
+3. 生成配药方案：使用 format_prescription 工具生成具体方案
 
 最后给出诊断结论和风险等级评估。"""
 

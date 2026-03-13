@@ -9,20 +9,17 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import AsyncIterator
-from datetime import datetime, timezone
 
 from src.api.dependencies import get_user_id
 from src.models.diagnosis_schemas import (
     DiagnosisRequest,
     DiagnosisEvent,
-    KnowledgeDocumentCreate,
+    KnowledgeSearchRequest,
 )
 from src.models.exceptions import AppException
 import src.services.diagnosis_service as diagnosis_service_module
 from src.services.vector_store_service import VectorStoreService
 from src.config import settings
-from sqlalchemy import make_url
-from langchain_core.documents import Document
 
 logger = logging.getLogger(__name__)
 
@@ -83,70 +80,46 @@ async def get_diagnosis_result(
     }
 
 
-# ========== 知识库管理端点 ==========
-
-@router.post("/knowledge/documents")
-async def create_knowledge_document(
-    doc: KnowledgeDocumentCreate,
+@router.post("/knowledge/search")
+async def search_knowledge(
+    request: KnowledgeSearchRequest,
     user_id: str = Depends(get_user_id)
 ):
-    """创建知识文档切片（同步创建）"""
+    """知识召回调试接口"""
     vector_store = get_vector_store()
 
-    # 使用 text splitter 对内容进行分块
-    from src.utils.common import create_text_splitter
-    splitter = create_text_splitter()
-    chunks = splitter.split_text(doc.content)
+    retrieval_filter = {"chunk_type": "child"}
+    if request.category:
+        retrieval_filter["category"] = request.category
+    if request.doc_id:
+        retrieval_filter["doc_id"] = request.doc_id
 
-    # 构建父文档
-    parent_chunk_id = f"{doc.doc_id}_parent"
-    parent_doc = Document(
-        page_content=doc.content,
-        metadata={
-            "chunk_id": parent_chunk_id,
-            "doc_id": doc.doc_id,
-            "title": doc.title,
-            "category": doc.category,
-            "subcategory": getattr(doc, "subcategory", None),
-            "created_by": user_id,
-            "chunk_type": "parent",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+    docs = await vector_store.similarity_search(
+        query=request.query,
+        k=request.top_k,
+        filter=retrieval_filter
     )
 
-    # 为每个分块创建子文档
-    child_documents = []
-    for idx, chunk_text in enumerate(chunks):
-        child_chunk_id = f"{parent_chunk_id}_child_{idx}"
-        document = Document(
-            page_content=chunk_text,
-            metadata={
-                "chunk_id": child_chunk_id,
-                "parent_chunk_id": parent_chunk_id,
-                "doc_id": doc.doc_id,
-                "title": doc.title,
-                "category": doc.category,
-                "subcategory": getattr(doc, "subcategory", None),
-                "created_by": user_id,
-                "chunk_index": idx,
-                "chunk_type": "child",
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
-        child_documents.append(document)
-
-    # 添加到向量库
-    await vector_store.add_parent_child_documents(
-        parent_documents=[parent_doc],
-        child_documents_map={parent_chunk_id: child_documents}
-    )
+    results = []
+    for doc in docs:
+        metadata = doc.metadata or {}
+        results.append({
+            "doc_id": metadata.get("doc_id"),
+            "title": metadata.get("title"),
+            "category": metadata.get("category"),
+            "chunk_id": metadata.get("chunk_id"),
+            "parent_chunk_id": metadata.get("parent_chunk_id"),
+            "chunk_type": metadata.get("chunk_type"),
+            "content_preview": doc.page_content[:300],
+        })
 
     return {
-        "doc_id": doc.doc_id,
-        "chunk_count": len(chunks),
-        "status": "created"
+        "query": request.query,
+        "doc_id": request.doc_id,
+        "category": request.category,
+        "top_k": request.top_k,
+        "results": results
     }
-
 
 @router.delete("/knowledge/documents/{doc_id}")
 async def delete_knowledge_document(
